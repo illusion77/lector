@@ -3,7 +3,7 @@
  * in the extension's origin, and taps in it count as gestures for playback), plus the
  * small action chips above it, all inside a closed shadow root.
  */
-import { dlog } from '../shared/debug';
+import { DEBUG, dlog, setLogSink } from '../shared/debug';
 import { ext } from '../shared/ext';
 import { CONNECT, type Platform, type Theme, type ToContent, type ToPlayer } from '../shared/protocol';
 
@@ -86,6 +86,7 @@ export class Bar {
     this.chipsEl.className = 'chips hidden';
     this.wrap.append(this.chipsEl, this.frame);
     this.root.append(style, this.wrap);
+    if (DEBUG) setLogSink((text) => this.send({ type: 'log', text }));
   }
 
   get element(): HTMLElement {
@@ -274,6 +275,7 @@ export class Bar {
   destroy() {
     if (this.closed) return;
     this.closed = true;
+    if (DEBUG) setLogSink(null);
     window.removeEventListener('resize', this.onResize);
     this.frame.classList.remove('shown');
     this.chipsEl.classList.add('hidden');

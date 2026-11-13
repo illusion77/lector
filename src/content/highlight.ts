@@ -60,7 +60,8 @@ export function highlight(range: Range | null) {
 }
 
 export function clearHighlight() {
-  mark?.clear();
+  // a mark left by an earlier copy of the script is cleared too (WebKit repaints on clear)
+  (mark ?? registry?.get(NAME))?.clear();
   registry?.delete(NAME);
   mark = null;
 }

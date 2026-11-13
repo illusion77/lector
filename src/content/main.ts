@@ -3,19 +3,38 @@
  * the text model and mounts the player bar.
  */
 import { Controller, type Start } from './controller';
+import { clearHighlight } from './highlight';
+import { DEBUG, dlog } from '../shared/debug';
 import { ext } from '../shared/ext';
 import type { Platform } from '../shared/protocol';
 
 declare global {
   interface Window {
-    __lector?: boolean;
+    /** The extension URL of the copy of this script running on the page. */
+    __lector?: string;
   }
 }
 
 type Message = { type: 'toggle' } | { type: 'read-here'; selection: boolean };
 
-if (!window.__lector) {
-  window.__lector = true;
+/**
+ * After Lector is updated or reinstalled, pages that were already open keep the old copy of
+ * this script, which can no longer reach the extension; its player bar stays on screen, dead.
+ * When a new copy starts on such a page, it clears away what the old one left behind.
+ */
+function clearStale() {
+  for (const el of document.querySelectorAll('lector-bar, lector-reload')) el.remove();
+  clearHighlight();
+}
+
+/** Set by the background's "reload the page" prompt (see background.ts). */
+const OPEN_AFTER_RELOAD = 'lector:open-after-reload';
+
+const self = ext.runtime.getURL('');
+dlog('content: loaded', location.href.slice(0, 60), 'already', window.__lector === self ? 'this' : window.__lector ? 'stale' : 'none');
+if (window.__lector !== self) {
+  window.__lector = self;
+  clearStale();
 
   const platform: Platform =
     /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))
@@ -39,7 +58,10 @@ if (!window.__lector) {
     void c.open(start, true);
   };
 
-  ext.runtime.onMessage.addListener((msg: Message) => {
+  ext.runtime.onMessage.addListener((msg: Message, _sender: unknown, reply: (r: { ok: true }) => void) => {
+    dlog('content: message', JSON.stringify(msg), 'open', Boolean(controller?.isOpen));
+    // the background takes a missing reply to mean this page needs the script again
+    reply({ ok: true });
     if (msg?.type === 'toggle') {
       if (controller?.isOpen) controller.close();
       else open(hasSelection() ? { kind: 'selection' } : { kind: 'visible' });
@@ -106,6 +128,19 @@ if (!window.__lector) {
     },
     true,
   );
+
+  // the reader asked to reload the page to get Lector working again: open it now
+  let reopen = false;
+  try {
+    reopen = sessionStorage.getItem(OPEN_AFTER_RELOAD) === '1';
+    sessionStorage.removeItem(OPEN_AFTER_RELOAD);
+  } catch {
+    /* storage blocked */
+  }
+  if (reopen) setTimeout(() => open({ kind: 'visible' }), 400);
+
+  // debug builds: a page opened with #lector-autotest opens Lector by itself, for remote testing
+  if (DEBUG && location.hash.includes('lector-autotest')) setTimeout(() => open({ kind: 'visible' }), 800);
 
   // a click on the page folds the settings card away
   window.addEventListener(

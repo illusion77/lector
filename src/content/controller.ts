@@ -3,6 +3,7 @@
  * and keeping the page (highlight, scroll position, chips) in step with the player.
  */
 import { Bar, type Chip } from './bar';
+import { caller, dlog } from '../shared/debug';
 import { fixedTopInset, inPager, isOwnScroll, reveal, startsInView, turnPageForward, visibility, rangeRects } from './follow';
 import { clearHighlight, highlight, isOwnStyle, setHighlightTheme } from './highlight';
 import { TextModel, type Sentence } from './text-model';
@@ -75,6 +76,8 @@ export class Controller {
   private chipTimer = 0;
   private advancing = false;
   private closed = false;
+  /** Sentences in a row the player couldn't say. */
+  private failures = 0;
 
   constructor(
     private platform: Platform,
@@ -118,8 +121,10 @@ export class Controller {
     this.observe(document.documentElement);
     for (const sr of this.model.shadowRoots) this.observe(sr);
     this.rebuildNav();
+    dlog('model built', this.model.sentences.length, 'sentences,', this.nav.length, 'readable,', Math.round(performance.now() - t0), 'ms');
     if (prev) {
       const i = this.find(prev);
+      dlog('model rebuilt: current', i >= 0 ? `found at ${i}` : 'lost', JSON.stringify(prev.text.slice(0, 30)));
       this.current = i >= 0 ? this.model.sentences[i] : null;
       this.pos = i >= 0 ? this.navPosFor(i) : -1;
       if (this.current) this.paint();
@@ -306,6 +311,7 @@ export class Controller {
     if (!this.model) return;
     const s = this.sentenceAt(pos);
     if (!s) return;
+    dlog('go', pos, '/', this.nav.length, play ? 'play' : 'cue', JSON.stringify(s.text.slice(0, 40)), caller());
     this.pos = pos;
     this.current = s;
     this.atEnd = false;
@@ -352,6 +358,8 @@ export class Controller {
   }
 
   toggle() {
+    dlog('toggle: intent', this.intent, 'atEnd', this.atEnd, 'current', Boolean(this.current));
+    this.failures = 0;
     if (!this.current) {
       this.startAt({ kind: 'visible' }, true);
       return;
@@ -371,6 +379,7 @@ export class Controller {
   next() {
     this.ensureModel();
     this.followSuspended = false;
+    this.failures = 0;
     if (this.pos < this.nav.length - 1) this.go(this.pos + 1, true);
     else void this.pastEnd(true);
   }
@@ -378,6 +387,7 @@ export class Controller {
   prev() {
     this.ensureModel();
     this.followSuspended = false;
+    this.failures = 0;
     if (this.pos > 0) this.go(this.pos - 1, true);
     else if (this.pos === 0) this.go(0, true);
   }
@@ -392,11 +402,13 @@ export class Controller {
 
   startFrom(start: Start) {
     this.followSuspended = false;
+    this.failures = 0;
     const p = this.startPos(start);
     if (p >= 0) this.go(p, true);
   }
 
   private onEnded(id: number) {
+    dlog('ended', id, id === this.playId ? '' : `(stale, playing ${this.playId})`);
     if (id !== this.playId) return;
     if (this.settings.stepMode) {
       this.intent = 'paused';
@@ -423,6 +435,7 @@ export class Controller {
   private async pastEnd(userAsked: boolean) {
     if (this.advancing) return;
     this.advancing = true;
+    dlog('pastEnd', userAsked ? 'asked' : 'auto');
     try {
       const before = this.current;
       const range = before && this.model ? this.model.range(before) : null;
@@ -461,7 +474,8 @@ export class Controller {
     if (this.current) {
       const item = this.item(this.current);
       this.playId = item.id;
-      if (this.wantAutoplay) {
+      // iOS won't start sound until the reader taps the player, so there it waits for that tap
+      if (this.wantAutoplay && this.platform !== 'touch') {
         this.intent = 'playing';
         this.bar.send({ type: 'play', item });
       } else this.bar.send({ type: 'cue', item });
@@ -480,17 +494,29 @@ export class Controller {
         else if (m.command === 'close') this.close();
         break;
       case 'playing':
-        if (m.id === this.playId) this.intent = 'playing';
+        if (m.id === this.playId) {
+          this.intent = 'playing';
+          this.failures = 0;
+        }
         break;
       case 'paused':
       case 'blocked':
+        dlog('player', m.type, m.id);
         if (m.id === this.playId) this.intent = 'paused';
         break;
       case 'ended':
         this.onEnded(m.id);
         break;
       case 'failed':
-        if (m.id === this.playId && this.intent === 'playing') this.onEnded(m.id);
+        dlog('player failed', m.id, m.message);
+        if (m.id !== this.playId) break;
+        // one sentence the voice can't say is skipped; more than that and something is
+        // wrong with the voice, so stop here rather than race through the book in silence
+        if (this.intent === 'playing' && ++this.failures < 2 && !this.settings.stepMode) this.onEnded(m.id);
+        else {
+          this.intent = 'paused';
+          this.sendStatus();
+        }
         break;
       case 'settings':
         this.applySettings(m.settings);

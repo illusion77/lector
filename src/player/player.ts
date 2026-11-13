@@ -3,7 +3,7 @@
  * the content script asks for and reports back; the content script decides what's next.
  */
 import { encodeWav } from 'phonon-tts';
-import { dlog } from '../shared/debug';
+import { DEBUG, dlog, postLog } from '../shared/debug';
 import { Engine, type Clip, type VoiceInfo } from './engine';
 import { icons } from './icons';
 import { systemVoice } from './system-voice';
@@ -171,6 +171,7 @@ function unlock() {
 }
 
 function speakSystem(item: Item) {
+  dlog('system voice', item.id, item.lang, JSON.stringify(item.text.slice(0, 30)));
   usingSystem = true;
   setProgress(0);
   systemVoice.speak(item.text, item.en ? 'en' : item.lang, settings.rate, {
@@ -186,6 +187,7 @@ function speakSystem(item: Item) {
       finished(item);
     },
     onError: (message) => {
+      dlog('system voice failed', item.id, message);
       if (current !== item) return;
       usingSystem = false;
       send({ type: 'failed', id: item.id, message });
@@ -193,8 +195,9 @@ function speakSystem(item: Item) {
   });
 }
 
-async function playItem(item: Item) {
+async function playItem(item: Item, attempt = 0) {
   current = item;
+  currentClip = null;
   wantPlay = true;
   stopOutput();
   nudge(false);
@@ -205,6 +208,7 @@ async function playItem(item: Item) {
     return;
   }
   let clip = engine.ready(item.text, settings.voice);
+  dlog('playItem', item.id, clip ? 'ready' : `waiting (engine ${engine.status})`, JSON.stringify(item.text.slice(0, 40)));
   if (!clip) {
     setMode('loading');
     wanted();
@@ -213,10 +217,15 @@ async function playItem(item: Item) {
     } catch (e) {
       if (current !== item || !wantPlay) return;
       if ((engine.status as string) === 'failed') {
-        speakSystem(item);
+        if (!usingSystem) speakSystem(item);
         return;
       }
-      if ((e as Error)?.name === 'AbortError') return;
+      if ((e as Error)?.name === 'AbortError' && attempt < 2) {
+        // the job was dropped (the voice changed meanwhile, say) but we still want it
+        void playItem(item, attempt + 1);
+        return;
+      }
+      wantPlay = false;
       setMode('paused');
       send({ type: 'failed', id: item.id, message: String((e as Error)?.message ?? e) });
       return;
@@ -249,7 +258,15 @@ async function startClip(item: Item, clip: Clip) {
       setMode('paused');
       nudge(true);
       send({ type: 'blocked', id: item.id });
-    } else if (name !== 'AbortError') {
+    } else if (name === 'AbortError') {
+      // interrupted before it started; don't leave the spinner turning
+      if (wantPlay && mode === 'loading') {
+        wantPlay = false;
+        setMode('paused');
+        send({ type: 'paused', id: item.id });
+      }
+    } else {
+      wantPlay = false;
       setMode('paused');
       send({ type: 'failed', id: item.id, message: String((e as Error)?.message ?? e) });
     }
@@ -263,6 +280,8 @@ function cue(item: Item) {
   stopOutput();
   setProgress(0);
   setMode('paused');
+  // iOS starts sound only from a tap in the player: until there's been one, ask for it
+  if (platform === 'touch' && !unlocked) nudge(true);
   wanted();
 }
 
@@ -334,6 +353,10 @@ audio.addEventListener('ended', () => {
   if (current && currentClip && audio.src === currentClip.url) finished(current);
 });
 
+for (const ev of ['error', 'stalled', 'waiting', 'emptied'] as const) {
+  audio.addEventListener(ev, () => dlog('audio', ev, audio.error?.message ?? '', audio.src.slice(0, 40)));
+}
+
 audio.addEventListener('pause', () => {
   // paused by the system (another app took audio, headphones unplugged)
   if (wantPlay && !audio.ended && mode === 'playing' && !usingSystem && current && !previewing) {
@@ -384,16 +407,19 @@ if ('mediaSession' in navigator) {
 let suppressClick = false;
 
 function command(c: Command) {
+  dlog('tap', c, 'mode', mode, 'wantPlay', wantPlay);
   if (c === 'faster' || c === 'slower') {
     setRate(settings.rate + (c === 'faster' ? 0.1 : -0.1));
     return;
   }
+  if (c !== 'close') engine.retry();
   unlock();
   send({ type: 'command', command: c });
 }
 
 playBtn.addEventListener('click', () => {
   nudge(false);
+  dlog('tap play: mode', mode, 'wantPlay', wantPlay, 'clip', Boolean(currentClip), 'atEnd', status.atEnd);
   // resume inside the tap itself, which iOS insists on for audio that was refused before
   if (!wantPlay && current && currentClip && audio.src === currentClip.url && !usingSystem && !previewing && !status.atEnd) {
     wantPlay = true;
@@ -705,6 +731,7 @@ const toggles: Array<[string, keyof Settings]> = [
 for (const [id, key] of toggles) {
   const input = $<HTMLInputElement>(id);
   input.addEventListener('change', () => {
+    dlog('toggle change', id, input.checked);
     (settings[key] as boolean) = input.checked;
     void saveSettings(settings);
     send({ type: 'settings', settings: { ...settings } });
@@ -719,6 +746,7 @@ function renderSettings() {
 }
 
 onSettingsChange((s) => {
+  dlog('settings changed in storage', JSON.stringify({ en: s.englishOnly, step: s.stepMode, follow: s.follow, rate: s.rate }));
   const voiceChanged = s.voice !== settings.voice;
   settings = s;
   applyRate();
@@ -780,8 +808,12 @@ function onMessage(m: ToPlayer) {
     case 'adjust':
       setRate(settings.rate + (m.command === 'faster' ? 0.1 : -0.1));
       break;
+    case 'log':
+      postLog(m.text);
+      break;
     case 'close':
       stopOutput();
+      engine.dispose();
       if ('mediaSession' in navigator) navigator.mediaSession.metadata = null;
       break;
   }
@@ -795,7 +827,7 @@ window.addEventListener('message', (e) => {
   dlog('player: connected');
   port.onmessage = (ev) => {
     const m = ev.data as ToPlayer;
-    if (m.type !== 'prefetch' && m.type !== 'status') dlog('player <-', m.type);
+    if (m.type !== 'prefetch' && m.type !== 'status' && m.type !== 'log') dlog('player <-', m.type);
     onMessage(m);
   };
   send({ type: 'ready' });
@@ -804,14 +836,21 @@ window.addEventListener('message', (e) => {
 
 /* --------------------------------------------------------------- start */
 
+if (DEBUG) {
+  let last = '';
+  setInterval(() => {
+    const s = `state: mode ${mode} want ${wantPlay} engine ${engine.status} audio ${audio.paused ? 'paused' : 'playing'} ${audio.currentTime.toFixed(1)}/${(audio.duration || 0).toFixed(1)} rs${audio.readyState} item ${current?.id ?? '-'} clip ${currentClip ? 'y' : 'n'} unlocked ${unlocked} vis ${document.visibilityState}`;
+    if (s.replace(/ [\d.]+\/[\d.]+/, '') !== last.replace(/ [\d.]+\/[\d.]+/, '')) dlog(s);
+    last = s;
+  }, 1000);
+}
+
 engine.onStatus = () => {
   dlog('engine', engine.status, engine.error);
   renderVoiceNote();
-  if (engine.status === 'failed') {
-    $('voices').classList.add('disabled');
-    // whatever was waiting on the neural voice goes to the system voice now
-    if (wantPlay && current && mode === 'loading') speakSystem(current);
-  }
+  $('voices').classList.toggle('disabled', engine.status === 'failed');
+  // whatever was waiting on the neural voice goes to the system voice now
+  if (engine.status === 'failed' && wantPlay && current && mode === 'loading' && !usingSystem) speakSystem(current);
 };
 
 (async () => {

@@ -2,8 +2,14 @@
  * The neural voice: Phonon 31m running in a worker, with a small scheduler on top so the
  * sentence about to be heard is always generated first and work nobody needs any more is
  * cancelled. Finished sentences are kept as WAV blob URLs for instant replay.
+ *
+ * The model can break while a page is open: a WebAssembly trap (out of memory, say) leaves
+ * every later call failing, and a worker the system stops never answers again. Either way
+ * the engine starts a fresh model and tries the sentence once more, and only gives up for
+ * good if that keeps happening.
  */
 import { PhononTTS, encodeWav } from 'phonon-tts';
+import { dlog } from '../shared/debug';
 
 export type Clip = { url: string; duration: number };
 
@@ -27,10 +33,20 @@ type Job = {
   reject: (e: unknown) => void;
   ctrl: AbortController | null;
   clip: Clip | null;
+  /** Attempts that failed with a fresh model to retry on. */
+  tries: number;
 };
 
 const KEEP = 48;
 const SAMPLE_RATE = 24000;
+/** No audio from the model for this long means its worker has stopped. */
+const STALL_MS = 12000;
+const LOAD_TIMEOUT_MS = 60000;
+/** Fresh models allowed within RESTART_WINDOW_MS before the voice is declared broken. */
+const MAX_RESTARTS = 3;
+const RESTART_WINDOW_MS = 120000;
+
+const abortError = () => new DOMException('Cancelled', 'AbortError');
 
 /** Trims the model's silent lead-in and its long tail, leaving a natural pause after the sentence. */
 export function trimSilence(pcm: Float32Array, sr = SAMPLE_RATE): Float32Array {
@@ -55,6 +71,18 @@ export function trimSilence(pcm: Float32Array, sr = SAMPLE_RATE): Float32Array {
   return out;
 }
 
+function concat(chunks: Float32Array[]): Float32Array {
+  let n = 0;
+  for (const c of chunks) n += c.length;
+  const out = new Float32Array(n);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.length;
+  }
+  return out;
+}
+
 export class Engine {
   voices: VoiceInfo[] = [];
   status: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
@@ -67,6 +95,9 @@ export class Engine {
   private done: string[] = [];
   /** URLs that must survive eviction, such as the one playing. */
   private pinned = new Set<string>();
+  /** When fresh models were started after the old one broke. */
+  private restarts: number[] = [];
+  private disposed = false;
   onStatus: (() => void) | null = null;
 
   constructor(private base: string) {}
@@ -83,11 +114,13 @@ export class Engine {
 
   load(): Promise<PhononTTS> {
     if (this.tts) return this.tts;
+    if (this.disposed) return Promise.reject(new Error('The voice was closed'));
     this.status = 'loading';
     this.onStatus?.();
+    const t0 = performance.now();
     const voices: Record<string, string> = { default: `${this.base}default-voice.safetensors` };
     for (const v of this.voices) voices[v.id] = `${this.base}${v.file}`;
-    this.tts = PhononTTS.load({
+    const loading = PhononTTS.load({
       lang: 'en',
       quant: 'q8',
       cache: false,
@@ -100,23 +133,79 @@ export class Engine {
         voices,
         defaultVoice: 'default',
       },
-    }).then(
-      (tts) => {
+    });
+    let timer = 0;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = window.setTimeout(() => {
+        // whatever arrives this late is no use any more
+        loading.then((t) => t.dispose(), () => {});
+        reject(new Error('The voice took too long to load'));
+      }, LOAD_TIMEOUT_MS);
+    });
+    const tts: Promise<PhononTTS> = Promise.race([loading, timeout]).then(
+      (t) => {
+        clearTimeout(timer);
+        if (this.tts !== tts) {
+          t.dispose();
+          throw abortError();
+        }
+        dlog('engine: loaded in', Math.round(performance.now() - t0), 'ms');
         this.status = 'ready';
         this.onStatus?.();
-        return tts;
+        return t;
       },
       (e) => {
-        this.status = 'failed';
-        this.error = e instanceof Error ? e.message : String(e);
-        this.tts = null;
-        this.onStatus?.();
-        for (const job of this.jobs.values()) if (job.state !== 'done') job.reject(e);
-        this.jobs.clear();
+        clearTimeout(timer);
+        if (this.tts !== tts) throw e;
+        dlog('engine: load failed', String((e as Error)?.message ?? e));
+        this.fail(e);
         throw e;
       },
     );
-    return this.tts;
+    this.tts = tts;
+    return tts;
+  }
+
+  /** The voice can't be used: everything waiting on it fails, and the player falls back. */
+  private fail(e: unknown) {
+    this.status = 'failed';
+    this.error = e instanceof Error ? e.message : String(e);
+    const old = this.tts;
+    this.tts = null;
+    old?.then((t) => t.dispose(), () => {});
+    for (const [key, job] of this.jobs) {
+      if (job.state === 'done') continue;
+      job.ctrl?.abort();
+      this.jobs.delete(key);
+      job.reject(e);
+    }
+    this.onStatus?.();
+  }
+
+  /** Try the neural voice again after it failed (the reader asked to play). */
+  retry() {
+    if (this.status !== 'failed' || this.disposed) return;
+    dlog('engine: retrying after', this.error);
+    this.status = 'idle';
+    this.error = '';
+    this.restarts = [];
+    this.onStatus?.();
+  }
+
+  /** Drop the broken model; the next sentence loads a fresh one. Gives up if this keeps happening. */
+  private restart(e: unknown) {
+    const now = Date.now();
+    this.restarts = this.restarts.filter((t) => now - t < RESTART_WINDOW_MS);
+    this.restarts.push(now);
+    dlog('engine: model broke:', String((e as Error)?.message ?? e), `(restart ${this.restarts.length})`);
+    if (this.restarts.length > MAX_RESTARTS) {
+      this.fail(new Error('The voice keeps failing'));
+      return;
+    }
+    const old = this.tts;
+    this.tts = null;
+    old?.then((t) => t.dispose(), () => {});
+    this.status = 'idle';
   }
 
   private key(text: string, voice: string) {
@@ -134,7 +223,7 @@ export class Engine {
         reject = rej;
       });
       promise.catch(() => {});
-      job = { key, text, voice, state: 'queued', promise, resolve, reject, ctrl: null, clip: null };
+      job = { key, text, voice, state: 'queued', promise, resolve, reject, ctrl: null, clip: null, tries: 0 };
       this.jobs.set(key, job);
     }
     return job;
@@ -142,6 +231,7 @@ export class Engine {
 
   /** Sets what's wanted, most urgent first. Anything else in progress is cancelled. */
   want(texts: string[], voice: string) {
+    if (this.status === 'failed' || this.disposed) return;
     const keys: string[] = [];
     for (const t of texts) {
       if (!t) continue;
@@ -161,6 +251,7 @@ export class Engine {
 
   /** The clip for a sentence, generated next if it isn't ready. */
   clip(text: string, voice: string): Promise<Clip> {
+    if (this.status === 'failed') return Promise.reject(new Error(this.error || 'The voice is unavailable'));
     const job = this.job(text, voice);
     this.order = [job.key, ...this.order.filter((k) => k !== job.key)];
     this.pump();
@@ -178,12 +269,56 @@ export class Engine {
   }
 
   private pump() {
+    if (this.disposed) return;
     if (this.running) {
       if (!this.order.includes(this.running.key)) this.running.ctrl?.abort();
       return;
     }
     const next = this.order.map((k) => this.jobs.get(k)).find((j) => j && j.state === 'queued');
     if (next) void this.run(next);
+  }
+
+  /**
+   * One sentence's audio. Settles at once when cancelled (the worker catches up on its
+   * own) and fails if the model goes quiet, which is how a stopped worker shows itself.
+   */
+  private generate(tts: PhononTTS, text: string, voice: string, signal: AbortSignal): Promise<Float32Array> {
+    return new Promise((resolve, reject) => {
+      const chunks: Float32Array[] = [];
+      let timer = 0;
+      let settled = false;
+      const finish = (err: unknown, pcm?: Float32Array) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        if (err) reject(err);
+        else resolve(pcm!);
+      };
+      const arm = () => {
+        clearTimeout(timer);
+        timer = window.setTimeout(() => finish(new Error('The voice stopped responding')), STALL_MS);
+      };
+      const onAbort = () => finish(abortError());
+      if (signal.aborted) return finish(abortError());
+      signal.addEventListener('abort', onAbort, { once: true });
+      arm();
+      const it = tts.stream(text, { voice, signal })[Symbol.asyncIterator]();
+      (async () => {
+        try {
+          for (;;) {
+            const r = await it.next();
+            if (settled) return;
+            if (r.done) break;
+            chunks.push(r.value);
+            arm();
+          }
+          finish(null, concat(chunks));
+        } catch (e) {
+          finish(e);
+        }
+      })();
+    });
   }
 
   private async run(job: Job) {
@@ -193,27 +328,47 @@ export class Engine {
     const { signal } = job.ctrl;
     try {
       const tts = await this.load();
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-      const pcm = await tts.synth(job.text, { voice: job.voice, signal });
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      if (signal.aborted) throw abortError();
+      const t0 = performance.now();
+      const pcm = await this.generate(tts, job.text, job.voice, signal);
+      if (signal.aborted) throw abortError();
       const trimmed = trimSilence(pcm, tts.sampleRate);
+      if (!trimmed.length) throw new Error('The voice made no sound');
+      const ms = performance.now() - t0;
+      const sec = trimmed.length / tts.sampleRate;
+      dlog('engine: synth', Math.round(ms), 'ms for', sec.toFixed(2), 's audio, rtf', (ms / 1000 / sec).toFixed(2), JSON.stringify(job.text.slice(0, 40)));
       const url = URL.createObjectURL(encodeWav(trimmed, tts.sampleRate));
-      job.clip = { url, duration: trimmed.length / tts.sampleRate };
+      job.clip = { url, duration: sec };
       job.state = 'done';
       job.resolve(job.clip);
+      this.restarts = [];
       this.remember(job.key);
     } catch (e) {
-      if (signal.aborted) {
+      if (this.jobs.get(job.key) !== job) {
+        // dropped while it ran (the voice failed for good); already settled
+      } else if (signal.aborted || (e as Error)?.name === 'AbortError') {
         // still wanted later? then it goes back in line; otherwise it's dropped
-        if (this.order.includes(job.key)) job.state = 'queued';
+        if (this.order.includes(job.key) && !this.disposed) job.state = 'queued';
         else {
           this.jobs.delete(job.key);
           job.reject(e);
         }
-      } else {
-        job.state = 'failed';
+      } else if (this.status === 'failed') {
         this.jobs.delete(job.key);
         job.reject(e);
+      } else {
+        dlog('engine: synth failed', String((e as Error)?.message ?? e), JSON.stringify(job.text.slice(0, 40)));
+        // a broken model fails everything after it: start a fresh one and try once more
+        this.restart(e);
+        if (this.jobs.get(job.key) !== job) {
+          // restart gave up and failed every job
+        } else if (job.tries++ < 1) {
+          job.state = 'queued';
+        } else {
+          job.state = 'failed';
+          this.jobs.delete(job.key);
+          job.reject(e);
+        }
       }
     } finally {
       job.ctrl = null;
@@ -238,8 +393,13 @@ export class Engine {
     }
   }
 
-  /** Say something once, outside the reading queue (voice previews). */
-  async preview(text: string, voice: string): Promise<Clip> {
-    return this.clip(text, voice);
+  /** Stop the worker and free the model (the player is closing). */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.running?.ctrl?.abort();
+    const old = this.tts;
+    this.tts = null;
+    old?.then((t) => t.dispose(), () => {});
   }
 }

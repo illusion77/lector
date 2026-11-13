@@ -23,7 +23,9 @@ export type ToPlayer =
   /** Sentences likely to be read next, in order. */
   | { type: 'prefetch'; items: Item[] }
   | { type: 'status'; canPrev: boolean; canNext: boolean; atEnd: boolean }
-  | { type: 'close' };
+  | { type: 'close' }
+  /** Debug builds: a log line from the page, for the player to pass on. */
+  | { type: 'log'; text: string };
 
 export type Command = 'toggle' | 'prev' | 'next' | 'close' | 'faster' | 'slower';
 
