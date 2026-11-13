@@ -62,12 +62,12 @@ Apps signed with a free account stop launching after seven days; build and run a
 | | |
 | --- | --- |
 | Open Lector and play / pause | Toolbar button, or <kbd>⌥K</kbd> |
-| Previous / next sentence | <kbd>⌥J</kbd> / <kbd>⌥L</kbd>, or <kbd>⌥←</kbd> / <kbd>⌥→</kbd> |
-| Faster / slower | <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd> |
+| Previous / next sentence | <kbd>⌥↑</kbd> / <kbd>⌥↓</kbd>, or <kbd>⌥J</kbd> / <kbd>⌥L</kbd> |
+| Slower / faster | <kbd>⌥←</kbd> / <kbd>⌥→</kbd> |
 | Read from a sentence | <kbd>⌥</kbd>-click it, or right-click › **Read aloud from here** |
 | Media keys and AirPods | Play/pause, previous, next |
 
-After you click a control in the player, <kbd>Space</kbd>, <kbd>←</kbd> and <kbd>→</kbd> work too. Drag the player by any blank spot to move it; Lector remembers where you put it on each site.
+After you click a control in the player, <kbd>Space</kbd>, <kbd>↑</kbd> and <kbd>↓</kbd> work too. Drag the player by any blank spot to move it; Lector remembers where you put it on each site.
 
 ### On iPhone
 

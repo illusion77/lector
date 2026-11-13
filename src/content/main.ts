@@ -71,19 +71,19 @@ if (!window.__lector) {
           else open(hasSelection() ? { kind: 'selection' } : { kind: 'visible' });
           break;
         case 'KeyJ':
-        case 'ArrowLeft':
+        case 'ArrowUp':
           if (!c) return;
           c.prev();
           break;
         case 'KeyL':
-        case 'ArrowRight':
+        case 'ArrowDown':
           if (!c) return;
           c.next();
           break;
-        case 'ArrowUp':
-        case 'ArrowDown':
+        case 'ArrowLeft':
+        case 'ArrowRight':
           if (!c) return;
-          c.adjust(e.code === 'ArrowUp' ? 'faster' : 'slower');
+          c.adjust(e.code === 'ArrowRight' ? 'faster' : 'slower');
           break;
         default:
           return;

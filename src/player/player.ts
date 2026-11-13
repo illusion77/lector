@@ -42,11 +42,11 @@ moreBtn.innerHTML = icons.settings;
 closeBtn.innerHTML = icons.close;
 glyph.innerHTML = icons.play;
 if (platform === 'desktop') {
-  prevBtn.title = `Previous sentence  ${MOD}J`;
-  nextBtn.title = `Next sentence  ${MOD}L`;
+  prevBtn.title = `Previous sentence  ${MOD}↑`;
+  nextBtn.title = `Next sentence  ${MOD}↓`;
   moreBtn.title = 'Settings';
   closeBtn.title = 'Close';
-  speedBtn.title = `Speed  ${MOD}↑ ${MOD}↓`;
+  speedBtn.title = `Speed  ${MOD}← ${MOD}→`;
 }
 
 const engine = new Engine(new URL('model/', location.href).href);
@@ -453,17 +453,17 @@ document.addEventListener('keydown', (e) => {
     case 'KeyL':
       c = 'next';
       break;
-    case 'ArrowLeft':
+    case 'ArrowUp':
       if (!onRange) c = 'prev';
       break;
-    case 'ArrowRight':
+    case 'ArrowDown':
       if (!onRange) c = 'next';
       break;
-    case 'ArrowUp':
-      if (e.altKey) c = 'faster';
-      break;
-    case 'ArrowDown':
+    case 'ArrowLeft':
       if (e.altKey) c = 'slower';
+      break;
+    case 'ArrowRight':
+      if (e.altKey) c = 'faster';
       break;
     case 'Escape':
       if (pane) {
