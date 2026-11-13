@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>Lector</title>
+    <link rel="stylesheet" href="player.css" />
+  </head>
+  <body>
+    <div id="card">
+      <section id="panel" hidden>
+        <div class="pane" data-pane="speed">
+          <div class="row-head">
+            <span class="label">Speed</span>
+            <span class="value" id="speed-value">1×</span>
+          </div>
+          <div class="presets" id="presets" role="radiogroup" aria-label="Speed"></div>
+          <input type="range" id="speed-slider" min="0.5" max="2.5" step="0.05" aria-label="Speed" />
+        </div>
+
+        <div class="pane" data-pane="settings">
+          <div class="section">
+            <div class="row-head">
+              <span class="label">Voice</span>
+              <span class="value" id="voice-note"></span>
+            </div>
+            <div class="voices" id="voices" role="radiogroup" aria-label="Voice"></div>
+          </div>
+
+          <div class="section">
+            <div class="row-head">
+              <span class="label">Speed</span>
+              <span class="value" id="speed-value-2">1×</span>
+            </div>
+            <input type="range" id="speed-slider-2" min="0.5" max="2.5" step="0.05" aria-label="Speed" />
+          </div>
+
+          <div class="section toggles">
+            <label class="toggle">
+              <span class="text">
+                <span class="title">English only</span>
+                <span class="sub">Skip Chinese and other non-Latin text, such as translations</span>
+              </span>
+              <input type="checkbox" id="opt-english" role="switch" />
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+            <label class="toggle">
+              <span class="text">
+                <span class="title">Pause after each sentence</span>
+                <span class="sub">Play reads the sentence again; next moves on</span>
+              </span>
+              <input type="checkbox" id="opt-step" role="switch" />
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+            <label class="toggle">
+              <span class="text">
+                <span class="title">Follow along</span>
+                <span class="sub">Scroll or turn pages to keep the sentence in view</span>
+              </span>
+              <input type="checkbox" id="opt-follow" role="switch" />
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div class="foot desktop-only">
+            <div class="keys">
+              <span><kbd>⌥K</kbd> Play / pause</span>
+              <span><kbd>⌥J</kbd> <kbd>⌥L</kbd> Previous / next</span>
+              <span><kbd>⌥↑</kbd> <kbd>⌥↓</kbd> Speed</span>
+              <span><kbd>⌥</kbd>-click Read from a sentence</span>
+            </div>
+          </div>
+          <div class="foot touch-only">
+            <p class="hint">Select any text to start reading from it.</p>
+            <button type="button" class="wide" id="turn-off">Close Lector</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="controls" role="toolbar" aria-label="Lector">
+        <span class="grip desktop-only" aria-hidden="true"></span>
+        <button type="button" class="chip-btn touch-only" id="speed-t" aria-label="Speed"></button>
+        <button type="button" class="icon" id="prev" aria-label="Previous sentence"></button>
+        <button type="button" class="play" id="play" aria-label="Play">
+          <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
+            <circle class="track" cx="24" cy="24" r="22.5" />
+            <circle class="progress" cx="24" cy="24" r="22.5" />
+          </svg>
+          <span class="glyph"></span>
+        </button>
+        <button type="button" class="icon" id="next" aria-label="Next sentence"></button>
+        <span class="sep desktop-only" aria-hidden="true"></span>
+        <button type="button" class="chip-btn desktop-only" id="speed-d" aria-label="Speed"></button>
+        <button type="button" class="icon" id="more" aria-label="Settings"></button>
+        <button type="button" class="icon small desktop-only" id="close" aria-label="Close"></button>
+      </div>
+    </div>
+    <audio id="audio" preload="auto"></audio>
+    <script type="module" src="player.js"></script>
+  </body>
+</html>

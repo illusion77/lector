@@ -1,0 +1,112 @@
+* {
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    cursor: default;
+    box-sizing: border-box;
+}
+
+:root {
+    color-scheme: light dark;
+    --fg: #1d1d1f;
+    --fg2: rgba(60, 60, 67, 0.64);
+    --card: #ffffff;
+    --bg: #f2f2f7;
+    --accent: #c98500;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --fg: #f5f5f7;
+        --fg2: rgba(235, 235, 245, 0.62);
+        --card: #1c1c1e;
+        --bg: #000000;
+        --accent: #ffbf2e;
+    }
+}
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font: -apple-system-body;
+    -webkit-text-size-adjust: 100%;
+}
+
+main {
+    max-width: 460px;
+    margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 48px) 20px calc(env(safe-area-inset-bottom) + 32px);
+    text-align: center;
+}
+
+.icon {
+    border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+h1 {
+    margin: 18px 0 4px;
+    font: -apple-system-title1;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.lede {
+    margin: 0 0 28px;
+    color: var(--fg2);
+}
+
+.steps {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+    text-align: left;
+    background: var(--card);
+    border-radius: 16px;
+}
+
+.steps li {
+    display: flex;
+    gap: 14px;
+    padding: 14px 16px;
+}
+
+.steps li + li {
+    border-top: 0.5px solid rgba(120, 120, 128, 0.3);
+}
+
+.n {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 13px;
+    background: var(--accent);
+    color: #1d1d1f;
+    font: -apple-system-subheadline;
+    font-weight: 700;
+    line-height: 26px;
+    text-align: center;
+}
+
+.steps strong {
+    display: block;
+    margin-bottom: 2px;
+    font: -apple-system-headline;
+}
+
+.steps span {
+    font: -apple-system-subheadline;
+    color: var(--fg2);
+}
+
+.steps b {
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.note {
+    margin: 22px 8px 0;
+    font: -apple-system-footnote;
+    color: var(--fg2);
+}
