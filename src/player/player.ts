@@ -156,7 +156,9 @@ function stopOutput() {
 
 /** iOS starts audio only from a tap; playing something silent during one unlocks the element. */
 function unlock() {
-  systemVoice.unlock();
+  // only when the system voice may be needed: speaking at all, even silently, starts iOS's
+  // speech audio, which may duck the first sentence playing alongside it
+  if (!settings.englishOnly || engine.status === 'failed') systemVoice.unlock();
   if (unlocked) return;
   if (!silentUrl) silentUrl = URL.createObjectURL(encodeWav(new Float32Array(1200), 24000));
   if (audio.src && !audio.paused) return;
@@ -850,6 +852,8 @@ for (const [id, key] of toggles) {
   input.addEventListener('change', () => {
     dlog('toggle change', id, input.checked);
     (settings[key] as boolean) = input.checked;
+    // other languages go to the system voice, which iOS starts only after a tap like this one
+    if (key === 'englishOnly' && !input.checked) systemVoice.unlock();
     void saveSettings(settings);
     send({ type: 'settings', settings: { ...settings } });
   });
