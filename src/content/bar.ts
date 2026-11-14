@@ -119,7 +119,7 @@ export class Bar {
     this.frame.src = `${ext.runtime.getURL('player.html')}#${params}`;
     dlog('bar: mount', this.frame.src, this.platform, window.innerWidth, window.innerHeight);
     // a placeholder size until the player reports its own
-    this.applySize(this.platform === 'touch' ? { width: Math.min(window.innerWidth - 24, 440), height: 64, radius: 32 } : { width: 318, height: 52, radius: 26 });
+    this.applySize(this.platform === 'touch' ? { width: Math.min(window.innerWidth - 24, 440), height: 64, radius: 32 } : { width: 300, height: 52, radius: 26 });
     document.documentElement.append(this.host);
     window.addEventListener('resize', this.onResize);
   }

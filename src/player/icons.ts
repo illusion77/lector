@@ -13,6 +13,10 @@ export const icons = {
   settings: svg(
     '<path d="M4 7.5h8.6M17.4 7.5H20M4 16.5h2.6M11.4 16.5H20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" fill="none"/><circle cx="15" cy="7.5" r="2.4" stroke="currentColor" stroke-width="1.9" fill="none"/><circle cx="9" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.9" fill="none"/>',
   ),
+  // repeat-one: the loop, with a 1 inside
+  repeatOne: svg(
+    '<path d="M3.6 12.6V9.2a3.6 3.6 0 0 1 3.6-3.6h12.2M16.8 3l2.6 2.6-2.6 2.6M20.4 11.4v3.4a3.6 3.6 0 0 1-3.6 3.6H4.6M7.2 21l-2.6-2.6 2.6-2.6M10.7 10.1 12.5 9v6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
+  ),
   minus: svg('<path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),
   plus: svg('<path d="M12 6v12M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),
   close: svg('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),

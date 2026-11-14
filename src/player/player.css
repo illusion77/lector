@@ -178,6 +178,15 @@ body.touch #next {
   background: var(--sel);
 }
 
+/* pause after each sentence: gray when off, full ink when on */
+#step {
+  color: var(--fg3);
+}
+
+#step[aria-pressed="true"] {
+  color: var(--fg);
+}
+
 .play {
   position: relative;
   width: var(--play);
@@ -269,43 +278,6 @@ body.touch #next {
   }
 }
 
-.chip-btn {
-  min-width: 48px;
-  height: 30px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 15px;
-  background: var(--well);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background-color 0.12s ease, transform 0.1s ease;
-}
-
-@media (hover: hover) {
-  .chip-btn:hover {
-    background: var(--sel);
-  }
-}
-
-.chip-btn:active {
-  transform: scale(0.94);
-}
-
-.chip-btn[aria-expanded="true"] {
-  background: var(--play-bg);
-  color: var(--play-fg);
-}
-
-body.touch .chip-btn {
-  min-width: 56px;
-  height: 36px;
-  border-radius: 18px;
-  font-size: 15px;
-}
-
 .grip {
   width: 12px;
   height: 22px;
@@ -375,15 +347,6 @@ body.touch #panel {
 body.sheet #grab {
   opacity: 1;
   pointer-events: auto;
-}
-
-.pane {
-  display: none;
-}
-
-#panel[data-pane="speed"] .pane[data-pane="speed"],
-#panel[data-pane="settings"] .pane[data-pane="settings"] {
-  display: block;
 }
 
 .section + .section {

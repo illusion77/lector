@@ -30,9 +30,9 @@ const prevBtn = $<HTMLButtonElement>('prev');
 const nextBtn = $<HTMLButtonElement>('next');
 const moreBtn = $<HTMLButtonElement>('more');
 const closeBtn = $<HTMLButtonElement>('close');
-const speedBtn = $<HTMLButtonElement>(platform === 'touch' ? 'speed-t' : 'speed-d');
+const stepBtn = $<HTMLButtonElement>('step');
 const glyph = playBtn.querySelector('.glyph') as HTMLElement;
-// on touch the bar is settings · previous · play · next · speed; on desktop settings sits at the end
+// on touch the bar is settings · previous · play · next · repeat; on desktop settings sits at the end
 if (platform === 'touch') controls.insertBefore(moreBtn, prevBtn);
 
 const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -41,6 +41,7 @@ const MOD = '⌥';
 prevBtn.innerHTML = icons.prev;
 nextBtn.innerHTML = icons.next;
 moreBtn.innerHTML = icons.settings;
+stepBtn.innerHTML = icons.repeatOne;
 closeBtn.innerHTML = icons.close;
 glyph.innerHTML = icons.play;
 if (platform === 'desktop') {
@@ -48,7 +49,7 @@ if (platform === 'desktop') {
   nextBtn.title = `Next sentence  ${MOD}↓`;
   moreBtn.title = 'Settings';
   closeBtn.title = 'Close';
-  speedBtn.title = `Speed  ${MOD}← ${MOD}→`;
+  stepBtn.title = 'Pause after each sentence';
 }
 
 const engine = new Engine(new URL('model/', location.href).href);
@@ -64,7 +65,7 @@ let usingSystem = false;
 let previewing = false;
 let unlocked = false;
 let status = { canPrev: false, canNext: false, atEnd: false };
-let pane: 'speed' | 'settings' | null = null;
+let open = false;
 let maxWidth = 440;
 let maxHeight = 640;
 let pageTitle = '';
@@ -103,7 +104,7 @@ function render() {
   playBtn.classList.toggle('loading', wantPlay && mode === 'loading');
   prevBtn.disabled = !status.canPrev && !current;
   nextBtn.disabled = !status.canNext;
-  speedBtn.textContent = formatRate(settings.rate);
+  stepBtn.setAttribute('aria-pressed', String(settings.stepMode));
   if (wantPlay && mode === 'playing' && !usingSystem) startProgress();
 }
 
@@ -449,8 +450,13 @@ prevBtn.addEventListener('click', () => command('prev'));
 nextBtn.addEventListener('click', () => command('next'));
 closeBtn.addEventListener('click', () => send({ type: 'command', command: 'close' }));
 $('turn-off').addEventListener('click', () => send({ type: 'command', command: 'close' }));
-moreBtn.addEventListener('click', () => openPane(pane === 'settings' ? null : 'settings'));
-speedBtn.addEventListener('click', () => openPane(pane === 'speed' ? null : 'speed'));
+moreBtn.addEventListener('click', () => openPanel(!open));
+stepBtn.addEventListener('click', () => {
+  settings.stepMode = !settings.stepMode;
+  render();
+  void saveSettings(settings);
+  send({ type: 'settings', settings: { ...settings } });
+});
 
 document.addEventListener(
   'click',
@@ -496,8 +502,8 @@ document.addEventListener('keydown', (e) => {
       if (e.altKey) c = 'faster';
       break;
     case 'Escape':
-      if (pane) {
-        openPane(null);
+      if (open) {
+        openPanel(false);
         e.preventDefault();
       }
       return;
@@ -534,7 +540,7 @@ window.addEventListener('pointermove', (e) => {
       /* capture unavailable */
     }
     // with the panel open on touch, the bar pulls the sheet down instead of moving the card
-    if (platform === 'touch' && pane) {
+    if (platform === 'touch' && open) {
       drag.sheet = true;
       sheetStart(drag.y);
     } else {
@@ -577,12 +583,12 @@ function barSize() {
 
 function cardSize() {
   const bar = barSize();
-  if (!pane) return { width: bar.width, height: bar.height, radius: bar.height / 2, expanded: false };
+  if (!open) return { width: bar.width, height: bar.height, radius: bar.height / 2, expanded: false };
   const width = platform === 'touch' ? bar.width : Math.max(bar.width, 340);
   document.documentElement.style.setProperty('--card-w', `${width}px`);
-  const active = panel.querySelector(`.pane[data-pane="${pane}"]`) as HTMLElement;
+  const content = panel.querySelector('.pane') as HTMLElement;
   const cs = getComputedStyle(panel);
-  const natural = active.offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 1;
+  const natural = content.offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 1;
   const height = Math.min(maxHeight, natural + bar.height);
   return { width, height, radius: platform === 'touch' ? 26 : 20, expanded: true };
 }
@@ -628,7 +634,7 @@ function sheetEnd(cancelled = false) {
   // capped, since from the bar there's little room left below the finger
   const close = !cancelled && (dy > Math.min(travel * 0.35, 96) || (speed > 0.4 && dy > 12));
   dlog('sheet: pulled', Math.round(dy), 'of', Math.round(travel), 'speed', speed.toFixed(2), close ? 'close' : 'back');
-  if (close) openPane(null);
+  if (close) openPanel(false);
   else reportSize();
 }
 
@@ -647,7 +653,7 @@ card.addEventListener(
   'touchstart',
   (e) => {
     pull = null;
-    if (platform !== 'touch' || !pane || sheet || e.touches.length !== 1) return;
+    if (platform !== 'touch' || !open || sheet || e.touches.length !== 1) return;
     const target = e.target as Element;
     // the bar has its own drag; sliders need sideways moves to themselves
     if (controls.contains(target) || target.closest('input[type="range"]')) return;
@@ -692,24 +698,20 @@ const endPull = (e: TouchEvent) => {
 card.addEventListener('touchend', endPull);
 card.addEventListener('touchcancel', endPull);
 
-function openPane(p: typeof pane) {
+function openPanel(on: boolean) {
   clearTimeout(collapseTimer);
-  pane = p;
+  open = on;
   sheet = null;
-  body.classList.toggle('sheet', p !== null);
-  moreBtn.setAttribute('aria-expanded', String(p === 'settings'));
-  speedBtn.setAttribute('aria-expanded', String(p === 'speed'));
-  if (p) {
+  body.classList.toggle('sheet', on);
+  moreBtn.setAttribute('aria-expanded', String(on));
+  if (on) {
     panel.hidden = false;
-    panel.dataset.pane = p;
     panel.scrollTop = 0;
-    if (p === 'settings') {
-      // bring the chosen voice into the list's view without scrolling the card itself
-      const list = $('voices');
-      const sel = list.querySelector('[aria-checked="true"]') as HTMLElement | null;
-      if (sel && (sel.offsetTop < list.scrollTop || sel.offsetTop + sel.offsetHeight > list.scrollTop + list.clientHeight)) {
-        list.scrollTop = sel.offsetTop - list.clientHeight / 2 + sel.offsetHeight / 2;
-      }
+    // bring the chosen voice into the list's view without scrolling the card itself
+    const list = $('voices');
+    const sel = list.querySelector('[aria-checked="true"]') as HTMLElement | null;
+    if (sel && (sel.offsetTop < list.scrollTop || sel.offsetTop + sel.offsetHeight > list.scrollTop + list.clientHeight)) {
+      list.scrollTop = sel.offsetTop - list.clientHeight / 2 + sel.offsetHeight / 2;
     }
     reportSize();
   } else {
@@ -855,7 +857,6 @@ function chooseVoice(id: string) {
 
 const toggles: Array<[string, keyof Settings]> = [
   ['opt-english', 'englishOnly'],
-  ['opt-step', 'stepMode'],
   ['opt-follow', 'follow'],
 ];
 
@@ -936,7 +937,7 @@ function onMessage(m: ToPlayer) {
       render();
       break;
     case 'collapse':
-      if (pane) openPane(null);
+      if (open) openPanel(false);
       break;
     case 'adjust':
       setRate(settings.rate + (m.command === 'faster' ? 0.1 : -0.1));

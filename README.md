@@ -80,7 +80,7 @@ After you click a control in the player, <kbd>Space</kbd>, <kbd>↑</kbd> and <k
 
 ### Settings
 
-Tap the sliders button for voice, **English only**, **Pause after each sentence**, and **Auto-scroll**. Tap the speed button for presets and a slider. On iPhone, pull either card down to put it away. Settings are shared by every site.
+Tap the sliders button for voice, speed, **English only**, and **Auto-scroll**. On iPhone, pull the card down to put it away. The repeat-one button on the bar pauses after each sentence: play reads it again, next moves on. Settings are shared by every site.
 
 ## How it works
 
