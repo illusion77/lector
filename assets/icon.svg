@@ -1,16 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2e2e33"/>
-      <stop offset="1" stop-color="#141416"/>
+      <stop offset="0" stop-color="#303035"/>
+      <stop offset="1" stop-color="#121214"/>
     </linearGradient>
     <linearGradient id="hl" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#ffc83d"/>
       <stop offset="1" stop-color="#ffad1f"/>
     </linearGradient>
+    <clipPath id="tile">
+      <rect x="6" y="6" width="116" height="116" rx="27"/>
+    </clipPath>
   </defs>
-  <rect x="6" y="6" width="116" height="116" rx="27" fill="url(#bg)"/>
-  <rect x="30" y="33" width="54" height="11" rx="5.5" fill="#f5f5f7" fill-opacity=".42"/>
-  <rect x="21" y="55" width="86" height="19" rx="9.5" fill="url(#hl)"/>
-  <rect x="30" y="85" width="66" height="11" rx="5.5" fill="#f5f5f7" fill-opacity=".42"/>
+  <g clip-path="url(#tile)">
+    <g transform="translate(6 6) scale(1.16)">
+      <rect width="100" height="100" fill="url(#bg)"/>
+      <rect x="26" y="24" width="38" height="7" rx="3.5" fill="#f5f5f7" fill-opacity=".38"/>
+      <rect x="15" y="38" width="70" height="24" rx="12" fill="url(#hl)"/>
+      <path d="M27.5 43.5v13l11-6.5z" fill="#18181b" stroke="#18181b" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="45" y="47" width="30" height="6" rx="3" fill="#18181b" fill-opacity=".28"/>
+      <rect x="26" y="69" width="48" height="7" rx="3.5" fill="#f5f5f7" fill-opacity=".38"/>
+    </g>
+  </g>
 </svg>
