@@ -3,7 +3,7 @@
  * and keeping the page (highlight, scroll position, chips) in step with the player.
  */
 import { Bar, type Chip } from './bar';
-import { caller, dlog } from '../shared/debug';
+import { DEBUG, caller, dlog } from '../shared/debug';
 import { fixedTopInset, inPager, isOwnScroll, reveal, startsInView, turnPageForward, visibility, rangeRects } from './follow';
 import { clearHighlight, highlight, isOwnStyle, setHighlightTheme } from './highlight';
 import { TextModel, type Sentence } from './text-model';
@@ -74,6 +74,7 @@ export class Controller {
   private theme: Theme = 'light';
   private themeTimer = 0;
   private chipTimer = 0;
+  private recheckTimer = 0;
   private advancing = false;
   private closed = false;
   /** Sentences in a row the player couldn't say. */
@@ -103,6 +104,24 @@ export class Controller {
     await this.bar.mount(this.theme, () => this.onConnected());
     this.bar.send({ type: 'hello', theme: this.theme, maxWidth: window.innerWidth - 24, maxHeight: window.innerHeight - 40, title: document.title });
     this.ensureModel();
+    if (DEBUG && this.model) {
+      // debug builds: everything that would be read, for checking a site's rules
+      const list = this.nav.map((i) => this.model!.sentences[i]);
+      const hooks = (el: Element) => {
+        const out: string[] = [];
+        for (let a: Element | null = el; a && out.length < 4 && a !== document.body; a = parentOf(a)) {
+          const attrs = ['data-testid', 'data-type', 'data-block', 'id', 'aria-label', 'slot', 'role']
+            .map((k) => (a!.getAttribute(k) ? `${k}=${a!.getAttribute(k)!.slice(0, 24)}` : ''))
+            .filter(Boolean);
+          const named = (a.className?.toString() ?? '').split(/\s+/).find((c) => /-[A-Z]/.test(c));
+          if (attrs.length || named || a.localName.includes('-')) out.push(`${a.localName}[${[...attrs, named ? `.${named.replace(/^css-[a-z0-9]+-/, '')}` : ''].filter(Boolean).join(' ')}]`);
+        }
+        return out.join('<');
+      };
+      for (let k = 0; k < Math.min(list.length, 120); k += 10) {
+        dlog('sentences', k, list.slice(k, k + 10).map((s) => `${s.text.slice(0, 50)} {${hooks(s.run.el)}}`).join(' | '));
+      }
+    }
     this.startAt(start, false);
     this.listen();
   }
@@ -121,6 +140,11 @@ export class Controller {
     this.observe(document.documentElement);
     for (const sr of this.model.shadowRoots) this.observe(sr);
     this.rebuildNav();
+    if (DEBUG) {
+      // debug builds: what would be read, for tests (only visible to the page in test harnesses)
+      const m = this.model;
+      (window as unknown as { __lectorSentences?: () => string[] }).__lectorSentences = () => this.nav.map((i) => m.sentences[i].text);
+    }
     dlog('model built', this.model.sentences.length, 'sentences,', this.nav.length, 'readable,', Math.round(performance.now() - t0), 'ms');
     if (prev) {
       const i = this.find(prev);
@@ -140,6 +164,7 @@ export class Controller {
         if (this.bar.element.contains(r.target)) continue;
         if (r.type === 'childList' && [...r.addedNodes, ...r.removedNodes].every((n) => isOwnStyle(n))) continue;
         this.dirty = true;
+        this.scheduleRecheck();
         return;
       }
     });
@@ -182,6 +207,20 @@ export class Controller {
     return i === undefined ? null : this.model!.sentences[i];
   }
 
+  /**
+   * While paused, a page that replaces the cued sentence (a reader swapping "Loading…" for
+   * the book) gets the mark moved to what's on screen now, not left on text that's gone.
+   */
+  private scheduleRecheck() {
+    clearTimeout(this.recheckTimer);
+    this.recheckTimer = window.setTimeout(() => {
+      if (this.closed || this.intent !== 'paused' || !this.current || !this.model) return;
+      if (this.model.range(this.current)) return;
+      this.ensureModel();
+      if (!this.current) this.startAt({ kind: 'visible' }, false);
+    }, 500);
+  }
+
   /* ------------------------------------------------------------ finding */
 
   private insets() {
@@ -216,6 +255,26 @@ export class Controller {
       }
     }
     return best[2] >= 0 ? best[2] : best[1] >= 0 ? best[1] : best[0];
+  }
+
+  /**
+   * The sentence nearest to what's on screen, when none starts in view (a long paragraph
+   * fills the screen, or the page is still settling): the first one not above the view.
+   * Never the top of the page, which may be thousands of lines away.
+   */
+  private nearestPos(): number {
+    const model = this.ensureModel();
+    if (!this.nav.length) return -1;
+    const top = this.insets().top;
+    let lastRun = null as Sentence['run'] | null;
+    for (let p = 0; p < this.nav.length; p++) {
+      const s = model.sentences[this.nav[p]];
+      if (s.run === lastRun) continue;
+      lastRun = s.run;
+      const r = s.run.el.getBoundingClientRect();
+      if (r.width > 0 && r.bottom > top) return p;
+    }
+    return this.nav.length - 1;
   }
 
   private selectionStart(): { node: Node; offset: number; text: string } | null {
@@ -284,7 +343,7 @@ export class Controller {
     if (start.kind === 'selection') p = this.selectionPos();
     else if (start.kind === 'point') p = this.pointPos(start.x, start.y);
     if (p < 0) p = this.firstVisible();
-    if (p < 0) p = this.nav.length ? 0 : -1;
+    if (p < 0) p = this.nearestPos();
     return p;
   }
 
@@ -359,6 +418,8 @@ export class Controller {
   }
 
   toggle() {
+    // the page may have replaced the sentence since (a reader that showed "Loading…" first)
+    this.ensureModel();
     dlog('toggle: intent', this.intent, 'atEnd', this.atEnd, 'current', Boolean(this.current));
     this.failures = 0;
     if (!this.current) {
@@ -381,7 +442,8 @@ export class Controller {
     this.ensureModel();
     this.followSuspended = false;
     this.failures = 0;
-    if (this.pos < this.nav.length - 1) this.go(this.pos + 1, true);
+    if (!this.current) this.startAt({ kind: 'visible' }, true);
+    else if (this.pos < this.nav.length - 1) this.go(this.pos + 1, true);
     else void this.pastEnd(true);
   }
 
@@ -389,7 +451,8 @@ export class Controller {
     this.ensureModel();
     this.followSuspended = false;
     this.failures = 0;
-    if (this.pos > 0) this.go(this.pos - 1, true);
+    if (!this.current) this.startAt({ kind: 'visible' }, true);
+    else if (this.pos > 0) this.go(this.pos - 1, true);
     else if (this.pos === 0) this.go(0, true);
   }
 
@@ -418,7 +481,10 @@ export class Controller {
       return;
     }
     this.ensureModel();
-    if (this.pos >= 0 && this.pos < this.nav.length - 1) {
+    if (!this.current) {
+      // the sentence is gone from the page (it was replaced): carry on from what's on screen
+      this.startAt({ kind: 'visible' }, true);
+    } else if (this.pos >= 0 && this.pos < this.nav.length - 1) {
       // follow along unless the reader scrolled away and the next sentence is still out of view
       const next = this.sentenceAt(this.pos + 1)!;
       const range = this.model!.range(next);
@@ -650,6 +716,7 @@ export class Controller {
     document.removeEventListener('visibilitychange', this.onHidden);
     clearInterval(this.themeTimer);
     clearTimeout(this.chipTimer);
+    clearTimeout(this.recheckTimer);
     for (const mo of this.observers) mo.disconnect();
     clearHighlight();
     this.bar.destroy();

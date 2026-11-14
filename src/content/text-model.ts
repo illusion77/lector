@@ -4,6 +4,7 @@
  * run is cut into sentences that map back to DOM ranges.
  */
 import { splitSentences, speakable } from './segment';
+import { siteConfig } from './sites';
 
 export interface Run {
   /** Nearest block-level ancestor. */
@@ -17,6 +18,8 @@ export interface Run {
   linkChars: number;
   /** 2 inside an article, 1 inside main, 0 elsewhere. */
   region: number;
+  /** Inside something a site rule says to read: the general filters leave it alone. */
+  kept: boolean;
 }
 
 export interface Sentence {
@@ -38,7 +41,7 @@ const SKIP_TAGS = new Set([
 ]);
 const SKIP_ROLES = new Set([
   'navigation', 'banner', 'contentinfo', 'complementary', 'search', 'menu', 'menubar',
-  'toolbar', 'tablist', 'tooltip', 'button', 'switch', 'slider', 'progressbar', 'status', 'note',
+  'toolbar', 'tablist', 'tab', 'tooltip', 'button', 'switch', 'slider', 'progressbar', 'status', 'note',
   'doc-noteref', 'doc-backlink',
 ]);
 /** Class names that mark page furniture rather than the text itself (matched whole). */
@@ -47,6 +50,16 @@ const NOISE_CLASSES = new Set([
   'related', 'promo', 'advert', 'advertisement', 'ad', 'ads', 'sponsored', 'visually-hidden',
   'sr-only', 'screen-reader-text', 'skip-link', 'breadcrumb', 'breadcrumbs', 'cookie-banner',
 ]);
+
+/** A run that only labels an ad: "Advertisement", "Advertisement - Scroll to Continue", "Sponsored". */
+const AD_LABEL = /^(advertisement|advertising|sponsored( content)?|ad|paid (post|content)|promoted)( [-–—·] scroll to continue( with content)?)?$/i;
+/** A page's copyright line ("Copyright ©2026 Dow Jones & Company, Inc. All Rights Reserved."). */
+const COPYRIGHT = /^(copyright\s*(©|\(c\)|\d{4})|©\s*\d{4}|\(c\)\s*\d{4})/i;
+
+/** A line that is only a number, like a vote or view count ("8.3K", "1,204"): never worth saying. */
+function isCount(text: string): boolean {
+  return /^[+\-−]?[\d.,]+\s*[kmb万千]?\+?$/i.test(text);
+}
 
 function isNoise(el: Element): boolean {
   const tag = el.localName;
@@ -135,6 +148,11 @@ export class TextModel {
   }
 
   private collect(root: Element, exclude: Element | null) {
+    const site = siteConfig();
+    const siteSkip = site.skip;
+    // a site rule naming the article itself: read only that, if the page has it
+    const only =
+      site.only && [...document.querySelectorAll(site.only)].some((el) => (el.textContent ?? '').trim().length > 40) ? site.only : '';
     let current: Run | null = null;
     let chars: string[] = [];
     let mapNode: number[] = [];
@@ -161,14 +179,14 @@ export class TextModel {
       lastSpace = true;
     };
 
-    const addText = (node: Text, block: Element, inLink: boolean, region: number) => {
+    const addText = (node: Text, block: Element, inLink: boolean, region: number, kept: boolean) => {
       const data = node.data;
       if (!current) {
         if (!/\S/.test(data)) return;
-        current = { el: block, nodes: [], text: '', mapNode: new Uint32Array(), mapOff: new Uint32Array(), linkChars: 0, region };
+        current = { el: block, nodes: [], text: '', mapNode: new Uint32Array(), mapOff: new Uint32Array(), linkChars: 0, region, kept };
       } else if (current.el !== block) {
         finish();
-        return addText(node, block, inLink, region);
+        return addText(node, block, inLink, region, kept);
       }
       const run: Run = current;
       const idx = run.nodes.length;
@@ -191,12 +209,13 @@ export class TextModel {
       }
     };
 
-    const walk = (node: Node, block: Element, region: number, inLink: boolean) => {
+    const keepSel = site.keep;
+    const walk = (node: Node, block: Element, region: number, inLink: boolean, inside = !only, kept = false) => {
       const kids = renderedChildren(node, this.shadowRoots);
       for (let i = 0; i < kids.length; i++) {
         const child = kids[i];
         if (child.nodeType === Node.TEXT_NODE) {
-          addText(child as Text, block, inLink, region);
+          if (inside) addText(child as Text, block, inLink, region, kept);
           continue;
         }
         if (child.nodeType !== Node.ELEMENT_NODE) continue;
@@ -208,14 +227,19 @@ export class TextModel {
           continue;
         }
         if (SKIP_TAGS.has(tag)) continue;
-        if (tag === 'nav' || tag === 'aside') continue;
-        if (el.getAttribute('aria-hidden') === 'true') continue;
+        const keep = kept || (keepSel !== '' && el.matches(keepSel));
         const role = el.getAttribute('role');
-        if (role && SKIP_ROLES.has(role)) continue;
         const own = tag === 'article' || role === 'article' ? 2 : tag === 'main' || role === 'main' ? 1 : 0;
         const main = Math.max(region, own);
-        if ((tag === 'header' || tag === 'footer') && !main) continue;
-        if (isNoteRef(el) || isNoise(el)) continue;
+        if (!keep) {
+          if (tag === 'nav' || tag === 'aside') continue;
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (role && SKIP_ROLES.has(role)) continue;
+          if ((tag === 'header' || tag === 'footer') && !main) continue;
+          if (isNoteRef(el) || isNoise(el)) continue;
+        }
+        if (siteSkip && el.matches(siteSkip)) continue;
+        const within = inside || (only !== '' && el.matches(only));
         const cs = getComputedStyle(el);
         if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') continue;
         if (cs.contentVisibility === 'hidden' || isVisuallyHidden(cs)) continue;
@@ -232,10 +256,10 @@ export class TextModel {
         }
         if (isBlockDisplay(cs.display)) {
           finish();
-          walk(el, el, main, inLink);
+          walk(el, el, main, inLink, within, keep);
           finish();
         } else {
-          walk(el, block, main, inLink || tag === 'a');
+          walk(el, block, main, inLink || tag === 'a', within, keep);
         }
       }
     };
@@ -243,8 +267,14 @@ export class TextModel {
     walk(root, root, 0, false);
     finish();
 
-    // navigation-like runs: short and almost all link text
-    this.runs = this.runs.filter((r) => !(r.text.length < 160 && r.linkChars > 0.75 * r.text.replace(/\s/g, '').length));
+    // navigation-like runs: short and almost all link text; ad labels; copyright lines
+    this.runs = this.runs.filter(
+      (r) =>
+        (r.kept || !(r.text.length < 160 && r.linkChars > 0.75 * r.text.replace(/\s/g, '').length)) &&
+        !AD_LABEL.test(r.text) &&
+        !COPYRIGHT.test(r.text) &&
+        !site.skipText.some((re) => re.test(r.text)),
+    );
   }
 
   private segment() {
@@ -253,7 +283,7 @@ export class TextModel {
       for (const span of splitSentences(run.text)) {
         const text = run.text.slice(span.start, span.end);
         const speech = speakable(text);
-        if (!speech) continue;
+        if (!speech || isCount(speech)) continue;
         this.sentences.push({ run, start: span.start, end: span.end, text, speech, en: span.en, lang: span.lang });
       }
     }

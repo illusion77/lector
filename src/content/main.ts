@@ -31,7 +31,7 @@ function clearStale() {
 const OPEN_AFTER_RELOAD = 'lector:open-after-reload';
 
 const self = ext.runtime.getURL('');
-dlog('content: loaded', location.href.slice(0, 60), 'already', window.__lector === self ? 'this' : window.__lector ? 'stale' : 'none');
+dlog('content: loaded', location.href.slice(0, 160), 'already', window.__lector === self ? 'this' : window.__lector ? 'stale' : 'none');
 if (window.__lector !== self) {
   window.__lector = self;
   clearStale();
@@ -138,6 +138,42 @@ if (window.__lector !== self) {
     /* storage blocked */
   }
   if (reopen) setTimeout(() => open({ kind: 'visible' }), 400);
+
+  // debug builds: #lector-probe=Some text|Other text logs the elements around those texts,
+  // with their attributes, for writing site rules (src/content/sites.ts)
+  const probe = DEBUG ? decodeURIComponent(location.hash).match(/lector-probe=([^#&]+)/)?.[1] : undefined;
+  if (probe) {
+    setTimeout(() => {
+      const describe = (el: Element) => {
+        const attrs = [...el.attributes]
+          .filter((a) => a.name !== 'style' && !a.name.startsWith('on'))
+          .map((a) => `${a.name}=${a.value.slice(0, 50)}`)
+          .join(' ');
+        return `${el.localName}[${attrs}] (${el.childElementCount})`;
+      };
+      const visit = (root: Document | ShadowRoot, needle: string, found: Text[]) => {
+        const tw = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        for (let n: Node | null = tw.currentNode; n; n = tw.nextNode()) {
+          if (n instanceof Element && n.shadowRoot) visit(n.shadowRoot, needle, found);
+          if (n.nodeType === Node.TEXT_NODE && (n as Text).data.includes(needle) && !n.parentElement?.closest('script, style, noscript, template')) found.push(n as Text);
+        }
+      };
+      for (const needle of probe.split('|')) {
+        const found: Text[] = [];
+        visit(document, needle, found);
+        dlog('probe', JSON.stringify(needle), found.length, 'found');
+        for (const t of found.slice(0, 2)) {
+          const chain: string[] = [];
+          for (let a: Element | null = t.parentElement; a && a !== document.body; ) {
+            chain.push(describe(a));
+            a = a.parentElement ?? ((a.getRootNode() as ShadowRoot).host || null);
+          }
+          dlog('probe chain', chain.join('\n   < '));
+          dlog('probe html', (t.parentElement?.parentElement?.outerHTML ?? '').replace(/ class="[^"]*"/g, '').slice(0, 700));
+        }
+      }
+    }, 7000);
+  }
 
   // debug builds: a page opened with #lector-autotest opens Lector by itself, for remote testing
   if (DEBUG && location.hash.includes('lector-autotest')) setTimeout(() => open({ kind: 'visible' }), 800);

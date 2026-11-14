@@ -19,6 +19,21 @@ test('keeps titles and initials inside the sentence', () => {
   ]);
 });
 
+test('keeps dotted abbreviations inside the sentence', () => {
+  assert.deepEqual(pieces('The U.S. Cut Cuba Off From the World’s Oil. Now It Runs on American Fuel.'), [
+    'The U.S. Cut Cuba Off From the World’s Oil.',
+    'Now It Runs on American Fuel.',
+  ]);
+  assert.deepEqual(pieces('The Five Weeks of Misery That Pushed N.J. Commuters to the Edge. It was bad.'), [
+    'The Five Weeks of Misery That Pushed N.J. Commuters to the Edge.',
+    'It was bad.',
+  ]);
+  assert.deepEqual(pieces('Martin Luther King Jr. Day is a holiday. Apple Inc. Reported earnings.'), [
+    'Martin Luther King Jr. Day is a holiday.',
+    'Apple Inc. Reported earnings.',
+  ]);
+});
+
 test('separates an English sentence from the translation after it', () => {
   const spans = splitSentences('The rain kept on. 雨一直在下。It never stopped.');
   assert.deepEqual(

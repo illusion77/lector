@@ -24,11 +24,13 @@ const LETTER_G = /\p{L}/gu;
 const LETTER = /\p{L}/u;
 
 /**
- * Titles and initials that end in a period without ending the sentence. The segmenter
- * breaks after them whenever a capital follows ("Mr. Holmes", "J. K. Rowling").
+ * Titles, initials and abbreviations that end in a period without ending the sentence. The
+ * segmenter breaks after them whenever a capital follows ("Mr. Holmes", "J. K. Rowling",
+ * "the U.S. Senate", "Smith Jr. Was"). Run together, two sentences are still read well;
+ * split apart, "The U.S." and "Cut Cuba Off From…" are not.
  */
 const NO_BREAK_AFTER =
-  /(?:^|[\s("'“‘])(?:Mr|Mrs|Ms|Mx|Messrs|Mme|Mlle|Dr|Prof|St|Mt|Ft|Gen|Col|Capt|Cmdr|Lt|Sgt|Rev|Hon|Gov|Sen|Rep|Pres|vs|[A-Z])\.$/;
+  /(?:^|[\s("'“‘])(?:Mr|Mrs|Ms|Mx|Messrs|Mme|Mlle|Dr|Prof|St|Mt|Ft|Gen|Col|Capt|Cmdr|Lt|Sgt|Rev|Hon|Gov|Sen|Rep|Pres|Jr|Sr|Inc|Corp|Ltd|Co|Bros|vs|[A-Z]|(?:[A-Za-z]\.)+[A-Za-z])\.$/;
 
 let segmenter: Intl.Segmenter | null = null;
 
