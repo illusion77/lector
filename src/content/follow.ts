@@ -4,6 +4,8 @@
  * way a reader would: with the arrow keys.
  */
 
+import { DEBUG, dlog } from '../shared/debug';
+
 export type Insets = { top: number; bottom: number };
 
 type Box = { left: number; top: number; right: number; bottom: number };
@@ -39,7 +41,27 @@ function union(rects: DOMRect[]): Box | null {
   return b;
 }
 
-type Clip = { box: Box; pager: Element | null; scroller: Element | null };
+type Clip = {
+  /** Where the element's content can be seen right now: the viewport, less every clipping ancestor. */
+  box: Box;
+  /** What the scrolling box shows: the viewport, less the scroller and the boxes around it. */
+  view: Box;
+  /**
+   * Clipping boxes between the element and its scroller (text truncated with an ellipsis,
+   * a post collapsed behind "Read more"). Scrolling moves them along with the text, so they
+   * decide which part of the text can be brought into view, not where the view is.
+   */
+  inner: Box | null;
+  pager: Element | null;
+  scroller: Element | null;
+};
+
+const intersect = (a: Box, r: Box) => {
+  a.left = Math.max(a.left, r.left);
+  a.right = Math.min(a.right, r.right);
+  a.top = Math.max(a.top, r.top);
+  a.bottom = Math.min(a.bottom, r.bottom);
+};
 
 /**
  * The part of the viewport where an element's content can be seen, the nearest
@@ -48,6 +70,8 @@ type Clip = { box: Box; pager: Element | null; scroller: Element | null };
  */
 function clipFor(el: Element): Clip {
   const box = viewportBox();
+  const view = viewportBox();
+  let inner: Box | null = null;
   let pager: Element | null = null;
   let scroller: Element | null = null;
   // text laid out in CSS columns, as paginated readers do
@@ -60,15 +84,19 @@ function clipFor(el: Element): Clip {
     const oy = cs.overflowY;
     if (ox === 'visible' && oy === 'visible') continue;
     const r = a.getBoundingClientRect();
-    if (ox !== 'visible') {
-      box.left = Math.max(box.left, r.left);
-      box.right = Math.min(box.right, r.right);
-    }
-    if (oy !== 'visible') {
-      box.top = Math.max(box.top, r.top);
-      box.bottom = Math.min(box.bottom, r.bottom);
-    }
+    const clip: Box = {
+      left: ox !== 'visible' ? r.left : -Infinity,
+      right: ox !== 'visible' ? r.right : Infinity,
+      top: oy !== 'visible' ? r.top : -Infinity,
+      bottom: oy !== 'visible' ? r.bottom : Infinity,
+    };
+    intersect(box, clip);
     if (!scroller && (oy === 'auto' || oy === 'scroll') && a.scrollHeight > a.clientHeight + 4) scroller = a;
+    if (scroller) intersect(view, clip);
+    else {
+      inner ??= { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
+      intersect(inner, clip);
+    }
     // a large box that hides what overflows sideways, holding columns or wider content:
     // the reader turns its pages (WebKit leaves column overflow out of scrollWidth)
     if (
@@ -81,7 +109,13 @@ function clipFor(el: Element): Clip {
       pager = a;
     }
   }
-  return { box, pager, scroller };
+  return { box, view, inner, pager, scroller };
+}
+
+/** A visible box, less what fixed bars and the player cover (they sit at the viewport's edges). */
+function band(box: Box, insets: Insets) {
+  const vp = viewportBox();
+  return { top: Math.max(box.top, vp.top + insets.top), bottom: Math.min(box.bottom, vp.bottom - insets.bottom) };
 }
 
 export type Visibility = 'visible' | 'before' | 'after' | 'left' | 'right' | 'unknown';
@@ -95,11 +129,12 @@ export function visibility(range: Range, insets: Insets): Visibility {
   const el = container instanceof Element ? container : container.parentElement;
   if (!el) return 'unknown';
   const { box } = clipFor(el);
+  const { top, bottom } = band(box, insets);
   const first = rects[0];
   if (first.left >= box.right - 1) return 'right';
   if (first.right <= box.left + 1) return 'left';
-  if (u.bottom <= box.top + insets.top + 2) return 'before';
-  if (first.top >= box.bottom - insets.bottom - 2) return 'after';
+  if (u.bottom <= top + 2) return 'before';
+  if (first.top >= bottom - 2) return 'after';
   return 'visible';
 }
 
@@ -111,9 +146,10 @@ export function startsInView(range: Range, insets: Insets): boolean {
   const el = container instanceof Element ? container : container.parentElement;
   if (!el) return false;
   const { box } = clipFor(el);
+  const { top, bottom } = band(box, insets);
   return (
-    first.top >= box.top + insets.top - 4 &&
-    first.bottom <= box.bottom - insets.bottom + 4 &&
+    first.top >= top - 4 &&
+    first.bottom <= bottom + 4 &&
     first.left >= box.left - 2 &&
     first.right <= box.right + 2
   );
@@ -165,19 +201,40 @@ export async function reveal(getRange: () => Range | null, insets: Insets, smoot
 
   const rects = rangeRects(range);
   const u = union(rects);
-  if (!u) return false;
-  const { box, scroller } = clipFor(el);
-  const top = box.top + insets.top;
-  const bottom = box.bottom - insets.bottom;
+  const desc = (e: Element | null) => (e ? `${e.localName}.${(e.className?.toString() ?? '').split(' ')[0].slice(0, 20)}` : 'window');
+  if (!u) {
+    dlog('reveal: no rects for', desc(el));
+    return false;
+  }
+  const { view, inner, scroller } = clipFor(el);
+  // the band the scrolling box shows, less what fixed bars and the player cover
+  const vp = viewportBox();
+  const top = Math.max(view.top, vp.top + insets.top);
+  const bottom = Math.min(view.bottom, vp.bottom - insets.bottom);
   const height = bottom - top;
-  if (height <= 40) return false;
+  // the part of the sentence that can be shown: text hidden in a collapsed box can't be
+  // scrolled into view, so the end of that box is shown instead of chasing the text
+  let t = { top: u.top, bottom: u.bottom };
+  if (inner && inner.bottom > inner.top) {
+    const a = Math.max(u.top, inner.top);
+    const b = Math.min(u.bottom, inner.bottom);
+    if (b > a) t = { top: a, bottom: b };
+    else if (u.top >= inner.bottom) t = { top: Math.max(inner.top, inner.bottom - 28), bottom: inner.bottom };
+    else t = { top: inner.top, bottom: Math.min(inner.bottom, inner.top + 28) };
+  }
+  const where = !DEBUG ? '' : `u ${Math.round(u.top)}..${Math.round(u.bottom)} t ${Math.round(t.top)}..${Math.round(t.bottom)} band ${Math.round(top)}..${Math.round(bottom)} scroller ${desc(scroller)} el ${desc(el)}`;
+  if (height <= 40) {
+    dlog('reveal: band too small', where);
+    return false;
+  }
   const comfortableTop = top + height * 0.08;
   const comfortableBottom = bottom - height * 0.12;
-  if (u.top >= comfortableTop && u.bottom <= comfortableBottom) return true;
+  if (t.top >= comfortableTop && t.bottom <= comfortableBottom) return true;
+  dlog('reveal: scrolling', where);
 
   // aim for a third of the way down; a sentence taller than the band starts at its top
-  const target = u.bottom - u.top > height * 0.6 ? top + height * 0.06 : top + height * 0.3;
-  const delta = u.top - target;
+  const target = t.bottom - t.top > height * 0.6 ? top + height * 0.06 : top + height * 0.3;
+  const delta = t.top - target;
   if (Math.abs(delta) < 2) return true;
   ownScrollUntil = performance.now() + (smooth ? 900 : 200);
   const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';

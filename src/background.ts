@@ -18,7 +18,9 @@ const OPEN_AFTER_RELOAD = 'lector:open-after-reload';
  * gives the page a working one. Runs in the page, so it must be self-contained.
  */
 function askToReload(key: string) {
-  if (document.querySelector('lector-reload')) return;
+  // a prompt from an earlier tap may linger (its timer stops while the page sits in the
+  // back-forward cache): start over with a fresh one
+  for (const old of document.querySelectorAll('lector-reload')) old.remove();
   const host = document.createElement('lector-reload');
   const root = host.attachShadow({ mode: 'closed' });
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;

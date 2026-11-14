@@ -300,6 +300,7 @@ export class Controller {
   }
 
   private async show(smooth: boolean) {
+    if (this.followSuspended) dlog('show: skipped, reader scrolled away');
     if (!this.current || !this.model || !this.settings.follow || this.followSuspended) return;
     const s = this.current;
     await reveal(() => (this.current === s ? this.model?.range(s) ?? null : null), this.insets(), smooth);
@@ -599,7 +600,10 @@ export class Controller {
       if (!['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', ' ', 'Home', 'End'].includes(e.key)) return;
       if (!e.isTrusted) return; // our own page turns
     }
-    if (this.intent === 'playing') this.followSuspended = true;
+    if (this.intent === 'playing' && !this.followSuspended) {
+      dlog('follow suspended by', e.type);
+      this.followSuspended = true;
+    }
     this.scheduleChips();
   };
 
