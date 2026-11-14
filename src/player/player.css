@@ -344,7 +344,37 @@ body.dragging * {
 }
 
 body.touch #panel {
-  padding: 16px 18px 14px;
+  padding: 24px 18px 14px;
+}
+
+/* the sheet's grabber; it's also a place to start pulling the panel down */
+#grab {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 1;
+  width: 96px;
+  height: 22px;
+  margin-left: -48px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+#grab::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 30px;
+  width: 36px;
+  height: 5px;
+  border-radius: 2.5px;
+  background: var(--fg3);
+}
+
+body.sheet #grab {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pane {

@@ -506,11 +506,11 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------------------------------------------------------------- drag */
 
-let drag: { x: number; y: number; id: number; active: boolean } | null = null;
+let drag: { x: number; y: number; id: number; active: boolean; sheet: boolean } | null = null;
 
 controls.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  drag = { x: e.screenX, y: e.screenY, id: e.pointerId, active: false };
+  drag = { x: e.screenX, y: e.screenY, id: e.pointerId, active: false, sheet: false };
 });
 
 window.addEventListener('pointermove', (e) => {
@@ -529,22 +529,36 @@ window.addEventListener('pointermove', (e) => {
     } catch {
       /* capture unavailable */
     }
-    body.classList.add('dragging');
-    send({ type: 'drag', phase: 'start', dx: 0, dy: 0 });
+    // with the panel open on touch, the bar pulls the sheet down instead of moving the card
+    if (platform === 'touch' && pane) {
+      drag.sheet = true;
+      sheetStart(drag.y);
+    } else {
+      body.classList.add('dragging');
+      send({ type: 'drag', phase: 'start', dx: 0, dy: 0 });
+    }
   }
-  send({ type: 'drag', phase: 'move', dx, dy });
+  if (drag.sheet) sheetMove(e.screenY);
+  else send({ type: 'drag', phase: 'move', dx, dy });
 });
 
 const endDrag = (e: PointerEvent) => {
   if (!drag || e.pointerId !== drag.id) return;
   if (drag.active) {
-    send({ type: 'drag', phase: 'end', dx: e.screenX - drag.x, dy: e.screenY - drag.y });
-    body.classList.remove('dragging');
-    suppressClick = true;
-    setTimeout(() => (suppressClick = false), 50);
+    if (drag.sheet) sheetEnd(e.type === 'pointercancel');
+    else {
+      send({ type: 'drag', phase: 'end', dx: e.screenX - drag.x, dy: e.screenY - drag.y });
+      body.classList.remove('dragging');
+    }
+    swallowClick();
   }
   drag = null;
 };
+
+function swallowClick() {
+  suppressClick = true;
+  setTimeout(() => (suppressClick = false), 50);
+}
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
 
@@ -557,24 +571,128 @@ function barSize() {
   return { width: Math.ceil(controls.scrollWidth), height: 52 };
 }
 
-function reportSize() {
+function cardSize() {
   const bar = barSize();
-  if (!pane) {
-    send({ type: 'size', width: bar.width, height: bar.height, radius: bar.height / 2, expanded: false });
-    return;
-  }
+  if (!pane) return { width: bar.width, height: bar.height, radius: bar.height / 2, expanded: false };
   const width = platform === 'touch' ? bar.width : Math.max(bar.width, 340);
   document.documentElement.style.setProperty('--card-w', `${width}px`);
   const active = panel.querySelector(`.pane[data-pane="${pane}"]`) as HTMLElement;
   const cs = getComputedStyle(panel);
   const natural = active.offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 1;
   const height = Math.min(maxHeight, natural + bar.height);
-  send({ type: 'size', width, height, radius: platform === 'touch' ? 26 : 20, expanded: true });
+  return { width, height, radius: platform === 'touch' ? 26 : 20, expanded: true };
 }
+
+function reportSize() {
+  send({ type: 'size', ...cardSize() });
+}
+
+/* --------------------------------------------------------------- sheet */
+
+/*
+ * On touch the open panel is a sheet: pull it down to put it away. The card's top edge
+ * follows the finger (the page resizes the frame with no animation while `live`), and on
+ * release it either folds into the bar or springs back. A pull starts on the bar, on the
+ * grabber, or anywhere in the panel once its content is scrolled to the top.
+ */
+type Sample = { y: number; t: number };
+let sheet: { from: number; size: ReturnType<typeof cardSize>; dy: number; samples: Sample[] } | null = null;
+
+function sheetStart(y: number) {
+  sheet = { from: y, size: cardSize(), dy: 0, samples: [{ y, t: performance.now() }] };
+}
+
+function sheetMove(y: number) {
+  if (!sheet) return;
+  const now = performance.now();
+  sheet.samples.push({ y, t: now });
+  while (sheet.samples.length > 2 && now - sheet.samples[0].t > 100) sheet.samples.shift();
+  sheet.dy = Math.max(0, y - sheet.from);
+  const floor = barSize().height;
+  send({ type: 'size', ...sheet.size, height: Math.max(floor, sheet.size.height - sheet.dy), live: true });
+}
+
+function sheetEnd(cancelled = false) {
+  if (!sheet) return;
+  const { dy, size, samples } = sheet;
+  sheet = null;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  // px/ms over the last ~100ms; a finger that stopped before lifting has no speed
+  const speed = last.t > first.t && performance.now() - last.t < 80 ? (last.y - first.y) / (last.t - first.t) : 0;
+  const travel = size.height - barSize().height;
+  // capped, since from the bar there's little room left below the finger
+  const close = !cancelled && (dy > Math.min(travel * 0.35, 96) || (speed > 0.4 && dy > 12));
+  dlog('sheet: pulled', Math.round(dy), 'of', Math.round(travel), 'speed', speed.toFixed(2), close ? 'close' : 'back');
+  if (close) openPane(null);
+  else reportSize();
+}
+
+const card = $('card');
+let pull: { id: number; x: number; y: number; atTop: boolean; pulling: boolean } | null = null;
+
+/** Whether `el` sits in content that's scrolled down, where a downward swipe should scroll. */
+function scrolledDown(el: Element | null) {
+  for (; el && el !== card; el = el.parentElement) if (el.scrollTop > 0) return true;
+  return false;
+}
+
+const touchOf = (e: TouchEvent, id: number) => Array.from(e.changedTouches).find((t) => t.identifier === id);
+
+card.addEventListener(
+  'touchstart',
+  (e) => {
+    pull = null;
+    if (platform !== 'touch' || !pane || sheet || e.touches.length !== 1) return;
+    const target = e.target as Element;
+    // the bar has its own drag; sliders need sideways moves to themselves
+    if (controls.contains(target) || target.closest('input[type="range"]')) return;
+    const t = e.touches[0];
+    pull = { id: t.identifier, x: t.screenX, y: t.screenY, atTop: !scrolledDown(target), pulling: false };
+  },
+  { passive: true },
+);
+
+card.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!pull) return;
+    const t = touchOf(e, pull.id);
+    if (!t) return;
+    if (!pull.pulling) {
+      const dx = t.screenX - pull.x;
+      const dy = t.screenY - pull.y;
+      if (!dx && !dy) return;
+      // decide on the first move, before iOS commits to scrolling; going up scrolls as usual
+      if (!pull.atTop || dy <= 0 || Math.abs(dy) < Math.abs(dx)) {
+        pull = null;
+        return;
+      }
+      pull.pulling = true;
+      sheetStart(pull.y);
+    }
+    e.preventDefault();
+    sheetMove(t.screenY);
+  },
+  { passive: false },
+);
+
+const endPull = (e: TouchEvent) => {
+  if (!pull || !touchOf(e, pull.id)) return;
+  const pulling = pull.pulling;
+  pull = null;
+  if (!pulling) return;
+  sheetEnd(e.type === 'touchcancel');
+  swallowClick();
+};
+card.addEventListener('touchend', endPull);
+card.addEventListener('touchcancel', endPull);
 
 function openPane(p: typeof pane) {
   clearTimeout(collapseTimer);
   pane = p;
+  sheet = null;
+  body.classList.toggle('sheet', p !== null);
   moreBtn.setAttribute('aria-expanded', String(p === 'settings'));
   speedBtn.setAttribute('aria-expanded', String(p === 'speed'));
   if (p) {
@@ -622,7 +740,7 @@ for (const r of SPEED_PRESETS) {
   presets.append(b);
 }
 
-const sliders = [$<HTMLInputElement>('speed-slider'), $<HTMLInputElement>('speed-slider-2')];
+const sliders = [$<HTMLInputElement>('speed-slider')];
 for (const s of sliders) s.addEventListener('input', () => setRate(parseFloat(s.value)));
 
 function renderSpeed() {
@@ -633,7 +751,6 @@ function renderSpeed() {
     s.style.setProperty('--fill', `${((r - MIN_RATE) / (MAX_RATE - MIN_RATE)) * 100}%`);
   }
   $('speed-value').textContent = formatRate(r);
-  $('speed-value-2').textContent = formatRate(r);
 }
 
 /* -------------------------------------------------------------- voices */

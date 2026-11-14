@@ -29,6 +29,7 @@ iframe { position: absolute; border: 0; margin: 0; padding: 0; display: block; p
   opacity: 0; transform: translateY(16px) scale(.98); }
 iframe.shown { opacity: 1; transform: none; }
 iframe.dragging { transition: width .3s, height .3s, border-radius .3s, opacity .2s; }
+iframe.live { transition: opacity .22s ease; }
 .dark iframe { box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 0 .5px rgba(255,255,255,.12); }
 .chips { position: absolute; display: flex; gap: 8px; justify-content: center; pointer-events: none;
   transition: opacity .18s ease, transform .22s cubic-bezier(.3,.9,.3,1); }
@@ -134,6 +135,7 @@ export class Bar {
     } else if (m.type === 'size') {
       this.expanded = m.expanded;
       if (m.expanded) this.setChips([]);
+      this.frame.classList.toggle('live', Boolean(m.live));
       this.applySize(m);
     } else if (m.type === 'drag') {
       this.drag(m.phase, m.dx, m.dy);

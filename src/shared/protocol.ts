@@ -31,7 +31,8 @@ export type Command = 'toggle' | 'prev' | 'next' | 'close' | 'faster' | 'slower'
 
 export type ToContent =
   | { type: 'ready' }
-  | { type: 'size'; width: number; height: number; radius: number; expanded: boolean }
+  /** `live`: the card is following a finger, so resize at once rather than animate. */
+  | { type: 'size'; width: number; height: number; radius: number; expanded: boolean; live?: boolean }
   | { type: 'command'; command: Command }
   /** Audio for this sentence started (or resumed). */
   | { type: 'playing'; id: number }
