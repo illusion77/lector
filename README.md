@@ -80,7 +80,7 @@ After you click a control in the player, <kbd>Space</kbd>, <kbd>↑</kbd> and <k
 
 ### Settings
 
-Tap the sliders button for voice, speed, **English only**, **Pause after each sentence**, and **Follow along**. Tap the speed button for quick presets. Settings are shared by every site.
+Tap the sliders button for voice, **English only**, **Pause after each sentence**, and **Auto-scroll**. Tap the speed button for presets and a slider. On iPhone, pull either card down to put it away. Settings are shared by every site.
 
 ## How it works
 
