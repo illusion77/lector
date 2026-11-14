@@ -38,7 +38,9 @@ function manifest(target) {
     m.permissions.push('contextMenus');
     m.minimum_chrome_version = '116';
   } else {
-    m.background = { service_worker: 'background.js' };
+    // a non-persistent background page, not a service worker: on iOS, Safari stops the
+    // worker after a while and doesn't always start it again, so taps on Lector go nowhere
+    m.background = { scripts: ['background.js'], persistent: false };
     m.browser_specific_settings = { safari: { strict_min_version: '17.0' } };
   }
   return m;

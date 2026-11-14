@@ -30,16 +30,28 @@ export function dlog(...args: unknown[]) {
   const text = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
   const inPage = typeof location !== 'undefined' && /^https?:$/.test(location.protocol) && typeof window !== 'undefined' && window.top === window;
   try {
-    if (!inPage) postLog(text);
-    else if (sink) sink(`[page +${Date.now() - t0}] ${text}`);
-    else if (location.protocol === 'http:') postLog(`[page +${Date.now() - t0}] ${text}`);
-    else void ext.runtime.sendMessage({ type: 'lector-log', text: `[page +${Date.now() - t0}] ${text}` }).catch(() => {});
+    if (inPage && sink) sink(`[page +${Date.now() - t0}] ${text}`);
+    else postLog(inPage ? `[page +${Date.now() - t0}] ${text}` : text);
   } catch {
     /* ignore */
   }
 }
 
+let isBackground = false;
+
+/** For the background, which posts log lines itself; everything else hands them to it. */
+export function markBackground() {
+  isBackground = true;
+}
+
 export function postLog(text: string) {
   if (!__LECTOR_DEBUG__) return;
-  void fetch(__LECTOR_DEBUG__, { method: 'POST', body: text, mode: 'cors' }).catch(() => {});
+  try {
+    // the player is a frame inside https pages, where a request to an http log server on
+    // the network is blocked as mixed content (localhost is exempt, so the simulator hides it)
+    if (isBackground || location.protocol === 'http:') void fetch(__LECTOR_DEBUG__, { method: 'POST', body: text, mode: 'cors' }).catch(() => {});
+    else void ext.runtime.sendMessage({ type: 'lector-log', text }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
 }

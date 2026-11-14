@@ -2,10 +2,13 @@
  * Background: the toolbar button toggles Lector on the page, and (where browsers have
  * context menus) "Read aloud from here" starts at the text that was right-clicked.
  */
-import { dlog, postLog } from './shared/debug';
+import { dlog, markBackground, postLog } from './shared/debug';
 import { ext } from './shared/ext';
 
 declare const __LECTOR_DEBUG__: string;
+
+markBackground();
+dlog('bg: started');
 
 const MENU_ID = 'lector-read-here';
 
