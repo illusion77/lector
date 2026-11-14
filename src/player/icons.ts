@@ -13,6 +13,8 @@ export const icons = {
   settings: svg(
     '<path d="M4 7.5h8.6M17.4 7.5H20M4 16.5h2.6M11.4 16.5H20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" fill="none"/><circle cx="15" cy="7.5" r="2.4" stroke="currentColor" stroke-width="1.9" fill="none"/><circle cx="9" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.9" fill="none"/>',
   ),
+  minus: svg('<path d="M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),
+  plus: svg('<path d="M12 6v12M6 12h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),
   close: svg('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>'),
   check: svg('<path d="M3 8.6 6.4 12 13 4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>', '0 0 16 16'),
 };

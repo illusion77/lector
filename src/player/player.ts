@@ -747,6 +747,14 @@ for (const r of SPEED_PRESETS) {
 const sliders = [$<HTMLInputElement>('speed-slider')];
 for (const s of sliders) s.addEventListener('input', () => setRate(parseFloat(s.value)));
 
+// the same 0.1× steps as ⌥← and ⌥→
+const slowerBtn = $<HTMLButtonElement>('slower');
+const fasterBtn = $<HTMLButtonElement>('faster');
+slowerBtn.innerHTML = icons.minus;
+fasterBtn.innerHTML = icons.plus;
+slowerBtn.addEventListener('click', () => setRate(settings.rate - 0.1));
+fasterBtn.addEventListener('click', () => setRate(settings.rate + 0.1));
+
 function renderSpeed() {
   const r = settings.rate;
   for (const b of presets.children) (b as HTMLElement).setAttribute('aria-checked', String(Math.abs(parseFloat((b as HTMLElement).dataset.rate!) - r) < 0.001));
@@ -755,6 +763,8 @@ function renderSpeed() {
     s.style.setProperty('--fill', `${((r - MIN_RATE) / (MAX_RATE - MIN_RATE)) * 100}%`);
   }
   $('speed-value').textContent = formatRate(r);
+  slowerBtn.disabled = r <= MIN_RATE;
+  fasterBtn.disabled = r >= MAX_RATE;
 }
 
 /* -------------------------------------------------------------- voices */

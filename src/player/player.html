@@ -16,7 +16,11 @@
             <span class="value" id="speed-value">1×</span>
           </div>
           <div class="presets" id="presets" role="radiogroup" aria-label="Speed"></div>
-          <input type="range" id="speed-slider" min="0.5" max="2.5" step="0.05" aria-label="Speed" />
+          <div class="slider-row">
+            <button type="button" class="icon small" id="slower" aria-label="Slower"></button>
+            <input type="range" id="speed-slider" min="0.5" max="2.5" step="0.05" aria-label="Speed" />
+            <button type="button" class="icon small" id="faster" aria-label="Faster"></button>
+          </div>
         </div>
 
         <div class="pane" data-pane="settings">

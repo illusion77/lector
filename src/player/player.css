@@ -551,6 +551,24 @@ body.touch .preset {
   border-radius: 11px;
 }
 
+/* − slider + ; the buttons reach past the edges so their glyphs line up with the presets */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -9px;
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+body.touch .slider-row {
+  margin: 0 -11px;
+}
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
