@@ -114,10 +114,18 @@ function isVisuallyHidden(cs: CSSStyleDeclaration): boolean {
   return parseFloat(cs.width) <= 2 || parseFloat(cs.height) <= 2;
 }
 
-/** Footnote and citation markers: a superscript that is (or holds) a link, like [12]. */
+/** What a footnote mark looks like: 12, [12], 3–5, *, †, a. */
+const NOTE_MARK = /^[[(]?(?:\d{1,3}(?:\s*[,–-]\s*\d{1,3})*|[*†‡§¶]{1,3}|[a-z])[\])]?$/i;
+
+/**
+ * Footnote and citation markers: a superscript number or symbol, linked or not, or a
+ * superscript that is (or holds) a link, like [12]. Ordinals ("1<sup>st</sup>") stay.
+ */
 function isNoteRef(el: Element): boolean {
+  if (/\bnoteref\b/.test(el.getAttribute('epub:type') ?? '')) return true;
   if (el.localName !== 'sup') return false;
-  const text = el.textContent ?? '';
+  const text = (el.textContent ?? '').trim();
+  if (NOTE_MARK.test(text)) return true;
   if (text.length > 24) return false;
   return Boolean(el.querySelector('a') || el.closest('a') || /ref|note|cite/i.test(el.className));
 }

@@ -32,6 +32,10 @@ const LETTER = /\p{L}/u;
 const NO_BREAK_AFTER =
   /(?:^|[\s("'“‘])(?:Mr|Mrs|Ms|Mx|Messrs|Mme|Mlle|Dr|Prof|St|Mt|Ft|Gen|Col|Capt|Cmdr|Lt|Sgt|Rev|Hon|Gov|Sen|Rep|Pres|Jr|Sr|Inc|Corp|Ltd|Co|Bros|vs|[A-Z]|(?:[A-Za-z]\.)+[A-Za-z])\.$/;
 
+/** Superscript digits, which some books type as characters for footnote marks ("2%.²⁴"). */
+const LEADING_MARK = /^\s*[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+/;
+const MARKS_G = /[\u00b9\u00b2\u00b3\u2070\u2074-\u2079]+/g;
+
 let segmenter: Intl.Segmenter | null = null;
 
 function count(text: string, re: RegExp): number {
@@ -156,8 +160,16 @@ export function splitSentences(text: string): Span[] {
 
   // re-join breaks after titles and initials
   const joined: Array<[number, number]> = [];
-  for (const [s, e] of raw) {
+  for (const [s0, e] of raw) {
+    let s = s0;
     const prev = joined[joined.length - 1];
+    // the segmenter breaks before a footnote mark ("2%." | "²⁴ So the…"); it ends the sentence before
+    const mark = prev && LEADING_MARK.exec(text.slice(s, e));
+    if (mark) {
+      s += mark[0].length;
+      prev[1] = s;
+      if (s >= e) continue;
+    }
     if (prev && NO_BREAK_AFTER.test(text.slice(prev[0], prev[1]).trimEnd())) prev[1] = e;
     else joined.push([s, e]);
   }
@@ -183,6 +195,7 @@ export function splitSentences(text: string): Span[] {
 export function speakable(text: string): string {
   return text
     .replace(/\[(?:\d{1,3}|[a-z]|citation needed|note \d+|edit)\]/gi, '')
+    .replace(MARKS_G, '')
     .replace(/[\u200b-\u200d\u2060\ufeff]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

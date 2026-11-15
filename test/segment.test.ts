@@ -81,3 +81,13 @@ test('skips text without letters', () => {
 test('drops footnote marks from speech', () => {
   assert.equal(speakable('A fine thing.[12] Really[citation needed]'), 'A fine thing. Really');
 });
+
+test('keeps superscript footnote marks with the sentence they follow', () => {
+  const text = 'The rate is 0.2%.²² Apple’s is about 2%.²⁴ So the people working there have tail careers.¹';
+  assert.deepEqual(pieces(text), ['The rate is 0.2%.²²', 'Apple’s is about 2%.²⁴', 'So the people working there have tail careers.¹']);
+});
+
+test('drops superscript footnote marks from speech', () => {
+  assert.equal(speakable('Apple’s is about 2%.²⁴'), 'Apple’s is about 2%.');
+  assert.equal(speakable('¹⁰ Leading mark'), 'Leading mark');
+});
