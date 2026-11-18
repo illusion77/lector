@@ -54,15 +54,17 @@ function askToReload(key: string) {
 }
 
 /**
- * Sends a message to the page's content script, which confirms each one with a reply.
- * No reply: the tab was open before Lector was installed (no script yet, so add it) or
- * before it was updated (a dead copy; Chrome reports the failed send as an error, Safari
- * says it was delivered). If adding the script doesn't help, the page needs a reload.
+ * Sends a message to the page's content script, which confirms each one with a reply. Without
+ * a frame it reaches every frame, and the top one answers. No reply: the tab was open before
+ * Lector was installed (no script yet, so add it) or before it was updated (a dead copy;
+ * Chrome reports the failed send as an error, Safari says it was delivered). If adding the
+ * script doesn't help, the page needs a reload.
  */
-async function message(tabId: number, msg: object) {
+async function message(tabId: number, msg: object, frameId?: number) {
   const send = async () => {
     try {
-      return Boolean(((await ext.tabs.sendMessage(tabId, msg)) as { ok?: boolean } | undefined)?.ok);
+      const reply = frameId === undefined ? await ext.tabs.sendMessage(tabId, msg) : await ext.tabs.sendMessage(tabId, msg, { frameId });
+      return Boolean((reply as { ok?: boolean } | undefined)?.ok);
     } catch {
       return false;
     }
@@ -70,7 +72,7 @@ async function message(tabId: number, msg: object) {
   if (await send()) return;
   dlog('bg: no reply from tab', tabId, '- injecting');
   try {
-    await ext.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    await ext.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] });
     if (await send()) return;
     dlog('bg: still no reply - asking for a reload');
     await ext.scripting.executeScript({ target: { tabId }, func: askToReload, args: [OPEN_AFTER_RELOAD] });
@@ -100,7 +102,8 @@ if (ext.contextMenus) {
   });
   ext.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === MENU_ID && tab?.id !== undefined) {
-      void message(tab.id, { type: 'read-here', selection: Boolean(info.selectionText) });
+      // to the frame that was right-clicked
+      void message(tab.id, { type: 'read-here', selection: Boolean(info.selectionText) }, info.frameId ?? 0);
     }
   });
 }

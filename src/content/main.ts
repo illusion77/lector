@@ -4,6 +4,7 @@
  */
 import { Controller, type Start } from './controller';
 import { clearHighlight } from './highlight';
+import { TextModel } from './text-model';
 import { DEBUG, dlog } from '../shared/debug';
 import { ext } from '../shared/ext';
 import type { Platform } from '../shared/protocol';
@@ -16,6 +17,16 @@ declare global {
 }
 
 type Message = { type: 'toggle' } | { type: 'read-here'; selection: boolean };
+
+/** What the toolbar button (toggle), ⌥K (playpause) or a reload prompt (open) asks for. */
+type Action = 'toggle' | 'playpause' | 'open';
+
+/** Between the copies of this script in a page's frames. */
+type FrameMessage =
+  | { lector: 'route'; id: string; action: Action }
+  | { lector: 'routed'; id: string; handled: boolean }
+  | { lector: 'opened'; session: string }
+  | { lector: 'close-others'; session: string };
 
 /**
  * After Lector is updated or reinstalled, pages that were already open keep the old copy of
@@ -43,6 +54,9 @@ if (window.__lector !== self) {
 
   let controller: Controller | null = null;
   let contextPoint: { x: number; y: number } | null = null;
+  const isTop = window === window.top;
+  /** This frame's reading session, so that opening one closes those in the page's other frames. */
+  let session = '';
 
   const hasSelection = () => Boolean(document.getSelection()?.toString().trim());
 
@@ -55,16 +69,105 @@ if (window.__lector !== self) {
       if (controller === c) controller = null;
     });
     controller = c;
+    session = Math.random().toString(36).slice(2);
+    window.top?.postMessage({ lector: 'opened', session } satisfies FrameMessage, '*');
     void c.open(start, true);
   };
 
+  /* ------------------------------------------------------------ frames */
+
+  // Some sites show the article in an iframe: chapters in the top page, the chapter beside them.
+  // Lector runs in every frame, and a reading session lives entirely in the frame that holds the
+  // text. The top frame takes the toolbar button and hands it to the frame the reader is looking
+  // at. Frames talk with postMessage, which works across origins.
+
+  /** An iframe that fills most of the viewport at its centre. */
+  const mainFrame = (): Window | null => {
+    const x = window.innerWidth / 2, y = window.innerHeight / 2;
+    let el = document.elementFromPoint(x, y);
+    while (el?.shadowRoot) {
+      const inner = el.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === el) break;
+      el = inner;
+    }
+    if (!(el instanceof HTMLIFrameElement || el instanceof HTMLFrameElement)) return null;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+    const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+    return w > 0 && h > 0 && w * h >= 0.4 * window.innerWidth * window.innerHeight ? el.contentWindow : null;
+  };
+
+  /** Something to read aloud: a video player or a widget in a frame has only scraps. */
+  const hasText = () => {
+    if (!document.body) return false;
+    const model = TextModel.build(document.body, null);
+    return model.sentences.reduce((n, s) => n + s.speech.length, 0) >= 60;
+  };
+
+  /** Hands an action to Lector in `frame`. False if it has nothing to read there, or no Lector answers. */
+  const ask = (frame: Window, action: Action) =>
+    new Promise<boolean>((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      const done = (handled: boolean) => {
+        window.removeEventListener('message', onReply);
+        clearTimeout(timer);
+        resolve(handled);
+      };
+      const onReply = (e: MessageEvent) => {
+        const m = e.data as FrameMessage | null;
+        if (e.source === frame && m?.lector === 'routed' && m.id === id) done(m.handled);
+      };
+      window.addEventListener('message', onReply);
+      const timer = setTimeout(() => done(false), 800);
+      frame.postMessage({ lector: 'route', id, action } satisfies FrameMessage, '*');
+    });
+
+  /**
+   * The toolbar button or ⌥K: acts on the session here, or hands the action to the frame the reader
+   * is looking at, or opens Lector here. A frame that was handed it (`asked`) declines when it has
+   * nothing to read, and the frame that asked opens Lector itself.
+   */
+  const route = async (action: Action, asked = false): Promise<boolean> => {
+    const c = controller?.isOpen ? controller : null;
+    if (c) {
+      if (action === 'toggle') c.close();
+      else if (action === 'playpause') c.toggle();
+      return true;
+    }
+    if (hasSelection()) {
+      open({ kind: 'selection' });
+      return true;
+    }
+    const frame = mainFrame();
+    if (frame && (await ask(frame, action))) return true;
+    if (asked && !hasText()) return false;
+    open({ kind: 'visible' });
+    return true;
+  };
+
+  window.addEventListener('message', (e) => {
+    const m = e.data as FrameMessage | null;
+    if (!m || typeof m !== 'object' || typeof m.lector !== 'string') return;
+    if (m.lector === 'route' && !isTop && e.source === window.parent) {
+      const from = e.source;
+      void route(m.action, true).then((handled) => from.postMessage({ lector: 'routed', id: m.id, handled } satisfies FrameMessage, '*'));
+    } else if ((m.lector === 'opened' && isTop) || (m.lector === 'close-others' && !isTop && e.source === window.parent)) {
+      // one session per page: the top frame passes the news down to every frame
+      if (controller?.isOpen && session !== m.session) controller.close();
+      for (let i = 0; i < window.frames.length; i++) {
+        window.frames[i].postMessage({ lector: 'close-others', session: m.session } satisfies FrameMessage, '*');
+      }
+    }
+  });
+
   ext.runtime.onMessage.addListener((msg: Message, _sender: unknown, reply: (r: { ok: true }) => void) => {
-    dlog('content: message', JSON.stringify(msg), 'open', Boolean(controller?.isOpen));
+    dlog('content: message', JSON.stringify(msg), 'open', Boolean(controller?.isOpen), 'top', isTop);
+    // the toolbar button reaches every frame; the top one decides where it goes
+    if (msg?.type === 'toggle' && !isTop) return false;
     // the background takes a missing reply to mean this page needs the script again
     reply({ ok: true });
     if (msg?.type === 'toggle') {
-      if (controller?.isOpen) controller.close();
-      else open(hasSelection() ? { kind: 'selection' } : { kind: 'visible' });
+      void route('toggle');
     } else if (msg?.type === 'read-here') {
       if (msg.selection && hasSelection()) open({ kind: 'selection' });
       else if (contextPoint) open({ kind: 'point', ...contextPoint });
@@ -89,8 +192,7 @@ if (window.__lector !== self) {
       const c = controller?.isOpen ? controller : null;
       switch (e.code) {
         case 'KeyK':
-          if (c) c.toggle();
-          else open(hasSelection() ? { kind: 'selection' } : { kind: 'visible' });
+          void route('playpause');
           break;
         case 'KeyJ':
         case 'ArrowUp':
@@ -130,14 +232,17 @@ if (window.__lector !== self) {
   );
 
   // the reader asked to reload the page to get Lector working again: open it now
+  // (asked in the top frame; frames on the same origin share its session storage)
   let reopen = false;
-  try {
-    reopen = sessionStorage.getItem(OPEN_AFTER_RELOAD) === '1';
-    sessionStorage.removeItem(OPEN_AFTER_RELOAD);
-  } catch {
-    /* storage blocked */
+  if (isTop) {
+    try {
+      reopen = sessionStorage.getItem(OPEN_AFTER_RELOAD) === '1';
+      sessionStorage.removeItem(OPEN_AFTER_RELOAD);
+    } catch {
+      /* storage blocked */
+    }
   }
-  if (reopen) setTimeout(() => open({ kind: 'visible' }), 400);
+  if (reopen) setTimeout(() => void route('open'), 400);
 
   // debug builds: #lector-probe=Some text|Other text logs the elements around those texts,
   // with their attributes, for writing site rules (src/content/sites.ts)

@@ -105,6 +105,11 @@ safari/                 the Xcode project for the iOS app that carries the Safar
 - **Text model.** The content script walks the page in rendering order, through open shadow roots and slots, and skips hidden text and page chrome. Text is grouped into runs that share a block box. Each run is split into sentences with `Intl.Segmenter`, plus fixes for titles and initials (“Mr.”, “J. K.”), passages that switch between English and CJK without punctuation, and overlong sentences. Every sentence maps back to a DOM `Range`, so it can be highlighted and scrolled to. The model is rebuilt when the page changes.
 - **Player.** The player is an extension page shown in an iframe. Audio and the WebAssembly model run in the extension's origin, unaffected by the page's security policy, and a tap on the player counts as the user gesture iOS requires before it plays sound.
 - **Voice.** [phonon-tts](https://www.npmjs.com/package/phonon-tts) runs the model in a Web Worker, about 5–8× faster than real time on one CPU core. Each sentence becomes a short WAV clip with its silent edges trimmed. It plays through an `<audio>` element, so speed changes keep the pitch and Media Session controls work.
+- **Frames.** Some sites show the article in an iframe, next to a list of chapters in the top page. The content script runs in every frame, and a reading session lives entirely in the frame that holds the text: its highlight, scrolling and player.
+  - The toolbar button and <kbd>⌥K</kbd> go to the top frame. If an iframe fills most of the window at its centre, the top frame hands them to that frame over `postMessage`, which works across origins.
+  - A frame with nothing to read, like a video player, declines, and the top page is read instead.
+  - Text selected in a frame, or right-clicked there, is read in that frame.
+  - Opening Lector in one frame closes it in the others.
 - **Paginated readers.** When the next sentence sits in a clipped multi-column container, off to the side, Lector presses the arrow keys the way a reader would, until the sentence shows.
 
 ## Development

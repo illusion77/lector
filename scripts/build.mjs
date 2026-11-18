@@ -29,7 +29,7 @@ function manifest(target) {
     action: { default_title: 'Read this page aloud', default_icon: { 16: icons[16], 32: icons[32], 48: icons[48] } },
     permissions: ['storage', 'scripting'],
     host_permissions: ['<all_urls>'],
-    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle', all_frames: false }],
+    content_scripts: [{ matches: ['<all_urls>'], js: ['content.js'], run_at: 'document_idle', all_frames: true }],
     web_accessible_resources: [{ resources: ['player.html'], matches: ['<all_urls>'] }],
     content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
   };

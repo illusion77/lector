@@ -698,6 +698,14 @@ const endPull = (e: TouchEvent) => {
 card.addEventListener('touchend', endPull);
 card.addEventListener('touchcancel', endPull);
 
+// On a Mac, clicking the settings button moves the focus into this frame, so a click anywhere
+// else takes it away again, in any frame of the page; the page only sees clicks in its own frame.
+if (platform === 'desktop') {
+  window.addEventListener('blur', () => {
+    if (open) openPanel(false);
+  });
+}
+
 function openPanel(on: boolean) {
   clearTimeout(collapseTimer);
   open = on;
