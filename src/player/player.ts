@@ -32,8 +32,6 @@ const moreBtn = $<HTMLButtonElement>('more');
 const closeBtn = $<HTMLButtonElement>('close');
 const stepBtn = $<HTMLButtonElement>('step');
 const glyph = playBtn.querySelector('.glyph') as HTMLElement;
-// on touch the bar is settings · previous · play · next · repeat; on desktop settings sits at the end
-if (platform === 'touch') controls.insertBefore(moreBtn, prevBtn);
 
 const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const MOD = '⌥';
